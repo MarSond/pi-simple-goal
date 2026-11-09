@@ -1,6 +1,6 @@
 {
   "name": "pi-simple-goal",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Persistent autonomous goals for pi, with an error brake (fork of pi-goal 0.1.7, MIT)",
   "type": "commonjs",
   "keywords": [

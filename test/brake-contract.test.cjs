@@ -54,3 +54,16 @@ test("der Wartezustand unterdrueckt die Fortsetzung und wacht beim naechsten Tur
 test("der Goal-Zustand liegt je Extension-Instanz", () => {
 	assert.match(indexSource, /export default function piGoal\(pi: ExtensionAPI\) \{\s*let goal: GoalState \| null = null;/);
 });
+
+// Der Fehlerstand gehoert in den Goal-Zustand, nicht nur in den Modulspeicher. Nach einem Neustart
+// mitten in einer Fehlerkette muss der Zaehler weiterlaufen und nicht bei null beginnen.
+test("Fehlerstand wird im Goal-Zustand persistiert und beim Erfolg geleert", () => {
+	assert.match(indexSource, /persist\(pi, ctx, accountGoalError\(goal, kind\)\)/);
+	assert.match(indexSource, /\.\.\.accountGoalError\(goal, kind\)/);
+	assert.match(indexSource, /goal = clearGoalErrors\(goal\);/);
+});
+
+// Nach /goal resume darf kein alter Pausegrund stehen bleiben, sonst widerspricht /goal status dem Zustand.
+test("ein Resume leert den Pausegrund", () => {
+	assert.match(indexSource, /if \(status === "active"\) next\.pauseReason = null;/);
+});

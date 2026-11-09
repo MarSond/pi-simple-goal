@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+	accountGoalError,
 	accountGoalTurn,
+	clearGoalErrors,
 	createGoalState,
 	goalEventStatus,
 	goalUsage,
@@ -262,7 +264,7 @@ export default function piGoal(pi: ExtensionAPI) {
 		brake = nextBrake;
 		if (decision.action === "pause") {
 			const paused: GoalState = {
-				...goal,
+				...accountGoalError(goal, kind),
 				status: "paused",
 				pauseReason: decision.reason,
 				updatedAt: Date.now(),
@@ -277,6 +279,9 @@ export default function piGoal(pi: ExtensionAPI) {
 			);
 			return;
 		}
+		// Der Fehlerstand gehoert in den Goal-Zustand: nach einem Neustart mitten in einer Fehlerkette
+		// muss der Zaehler weiterzaehlen und nicht bei null beginnen.
+		persist(pi, ctx, accountGoalError(goal, kind));
 		scheduleContinuation(pi, ctx, decision.delaySeconds, kind);
 	}
 	function scheduleContinuation(pi: ExtensionAPI, ctx: ExtensionContext, delaySeconds: number, kind: ErrorKind) {
@@ -539,7 +544,8 @@ export default function piGoal(pi: ExtensionAPI) {
 				}
 				const status: GoalStatus = trimmed === "pause" ? "paused" : "active";
 				if (status === "active") brake = resetBrakeState();
-				const next = { ...goal, status, updatedAt: now };
+				const next: GoalState = { ...goal, status, updatedAt: now };
+				if (status === "active") next.pauseReason = null;
 				persist(pi, ctx, next);
 				emitGoalEvent(pi, status === "active" ? "resumed" : "paused", next);
 				if (status === "active" && ctx.isIdle()) queueContinuation(pi, next);
@@ -652,6 +658,8 @@ export default function piGoal(pi: ExtensionAPI) {
 		}
 		if (outcome === "success") {
 			brake = resetBrakeState();
+			goal = clearGoalErrors(goal);
+			persist(pi, ctx, goal);
 			if (consecutiveAutoContinuations >= MAX_CONSECUTIVE_AUTO_CONTINUATIONS) {
 				const next: GoalState = {
 					...goal,
