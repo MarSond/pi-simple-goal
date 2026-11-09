@@ -1,10 +1,14 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Box, Spacer, Text } from "@mariozechner/pi-tui";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
 	accountGoalTurn,
 	createGoalState,
 	goalEventStatus,
 	goalUsage,
+	normalizeGoalState,
 	parseTokenBudget,
 	statusLine,
 	truncateObjective,
@@ -13,6 +17,18 @@ import {
 	type GoalStatus,
 	normalizeTokenBudget,
 } from "./goal-state";
+import {
+	DEFAULT_POLICY,
+	classifyError,
+	createBrakeState,
+	decide,
+	describeKind,
+	normalizeSignature,
+	resetBrakeState,
+	type BrakePolicy,
+	type BrakeState,
+	type ErrorKind,
+} from "./error-policy";
 import { tokenDeltaFromUsage, type UsageSnapshot } from "./usage";
 
 const CUSTOM_TYPE = "pi-goal";
@@ -23,6 +39,112 @@ let statusBarEnabled = true;
 let activeTurnStartedAt: number | null = null;
 let activeGoalThisTurnId: string | null = null;
 let continuationQueued = false;
+let continuationTimer: ReturnType<typeof setTimeout> | null = null;
+let brake: BrakeState = createBrakeState();
+let settledOutcome: "success" | "error" | "aborted" | null = null;
+let lastErrorMessage = "";
+
+const CONFIG_ENV = "PI_GOAL_KLS_CONFIG";
+
+function configPath(): string {
+	return process.env[CONFIG_ENV] ?? join(homedir(), ".pi", "agent", "pi-goal-kls.json");
+}
+
+function loadPolicy(): BrakePolicy {
+	try {
+		const parsed = JSON.parse(readFileSync(configPath(), "utf8")) as Partial<BrakePolicy>;
+		const backoff = Array.isArray(parsed.backoffSeconds)
+			? parsed.backoffSeconds.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+			: [];
+		return {
+			maxConsecutiveErrors: Number.isFinite(parsed.maxConsecutiveErrors)
+				? Number(parsed.maxConsecutiveErrors)
+				: DEFAULT_POLICY.maxConsecutiveErrors,
+			backoffSeconds: backoff.length > 0 ? backoff : DEFAULT_POLICY.backoffSeconds,
+			maxBackoffSeconds: Number.isFinite(parsed.maxBackoffSeconds)
+				? Number(parsed.maxBackoffSeconds)
+				: DEFAULT_POLICY.maxBackoffSeconds,
+			pauseOnTokenExhausted:
+				typeof parsed.pauseOnTokenExhausted === "boolean"
+					? parsed.pauseOnTokenExhausted
+					: DEFAULT_POLICY.pauseOnTokenExhausted,
+		};
+	} catch {
+		return DEFAULT_POLICY;
+	}
+}
+
+/** Ergebnis des zuletzt gelaufenen Turns, sobald Pi den Lauf abgeschlossen hat. */
+function outcomeOf(message: { role?: string; stopReason?: string } | undefined): "success" | "error" | "aborted" | null {
+	if (!message || message.role !== "assistant" || !message.stopReason) return null;
+	if (message.stopReason === "error" || message.stopReason === "aborted") return message.stopReason;
+	return "success";
+}
+
+function clearContinuationTimer() {
+	if (continuationTimer) {
+		clearTimeout(continuationTimer);
+		continuationTimer = null;
+	}
+}
+
+/**
+ * Fehler-Bremse. Nach einem Fehlerturn laeuft das Goal nicht sofort weiter, sondern wartet mit Backoff.
+ * Ab der konfigurierten Fehlerzahl pausiert das Goal mit Grund, statt weiter zu feuern.
+ */
+function applyBrake(pi: ExtensionAPI, ctx: ExtensionContext, outcome: "error" | "aborted") {
+	if (!goal) return;
+	if (outcome === "aborted") {
+		const paused: GoalState = {
+			...goal,
+			status: "paused",
+			pauseReason: "Der Turn wurde abgebrochen.",
+			updatedAt: Date.now(),
+		};
+		persist(pi, ctx, paused);
+		ctx.ui.notify("\u2016 Goal pausiert: der Turn wurde abgebrochen. Mit /goal resume geht es weiter.", "warning");
+		return;
+	}
+	const policy = loadPolicy();
+	const kind = classifyError(lastErrorMessage);
+	const signature = normalizeSignature(lastErrorMessage);
+	const { state: nextBrake, decision } = decide(brake, kind, signature, policy);
+	brake = nextBrake;
+	if (decision.action === "pause") {
+		const paused: GoalState = {
+			...goal,
+			status: "paused",
+			pauseReason: decision.reason,
+			updatedAt: Date.now(),
+		};
+		persist(pi, ctx, paused);
+		ctx.ui.notify(
+			`\u2016 Goal pausiert nach ${nextBrake.consecutiveErrors} Fehlern (${describeKind(kind)}).\n` +
+				`${decision.reason ?? ""}\n` +
+				`Fehlertext: ${truncateObjective(lastErrorMessage, 160) || "ohne Text"}\n` +
+				`Nach Behebung: /goal resume`,
+			"warning",
+		);
+		return;
+	}
+	scheduleContinuation(pi, ctx, decision.delaySeconds, kind);
+}
+
+function scheduleContinuation(pi: ExtensionAPI, ctx: ExtensionContext, delaySeconds: number, kind: ErrorKind) {
+	clearContinuationTimer();
+	const state = goal;
+	if (!state) return;
+	ctx.ui.notify(
+		`Goal wartet ${delaySeconds} s nach ${describeKind(kind)} (Fehler ${brake.consecutiveErrors}).`,
+		"warning",
+	);
+	continuationTimer = setTimeout(() => {
+		continuationTimer = null;
+		if (!goal || goal.id !== state.id || goal.status !== "active") return;
+		if (ctx.hasPendingMessages()) return;
+		emitGoalEvent(pi, "continuation", goal, { triggerTurn: true, deliverAs: "followUp" });
+	}, Math.max(0, delaySeconds) * 1000);
+}
 
 // The `content` field is what the LLM sees in the conversation history.
 // Every goal event MUST carry actionable text — never a cryptic marker.
@@ -103,6 +225,7 @@ function persist(pi: ExtensionAPI, ctx: ExtensionContext, next: GoalState | null
 	goal = next;
 	if (next?.status !== "active") {
 		continuationQueued = false;
+		clearContinuationTimer();
 	}
 	pi.appendEntry(CUSTOM_TYPE, { goal: next, statusBarEnabled });
 	updateStatusBar(ctx);
@@ -318,7 +441,16 @@ export default function piGoal(pi: ExtensionAPI) {
 
 			if (!trimmed || trimmed === "status") {
 				if (!goal) ctx.ui.notify("Usage: /goal [--tokens 50k] <objective>", "info");
-				else ctx.ui.notify(`${statusLine(goal)}\nObjective: ${goal.objective}\nStatus bar: ${statusBarEnabled ? "on" : "off"}`, "info");
+				else {
+					const brakeInfo = brake.consecutiveErrors
+						? `\nFehler in Folge: ${brake.consecutiveErrors} (${describeKind(brake.kind ?? "other")})`
+						: "";
+					const reason = goal.pauseReason ? `\nPausegrund: ${goal.pauseReason}` : "";
+					ctx.ui.notify(
+						`${statusLine(goal)}\nObjective: ${goal.objective}\nStatus bar: ${statusBarEnabled ? "on" : "off"}${brakeInfo}${reason}`,
+						"info",
+					);
+				}
 				return;
 			}
 
@@ -347,6 +479,7 @@ export default function piGoal(pi: ExtensionAPI) {
 					return;
 				}
 				const status: GoalStatus = trimmed === "pause" ? "paused" : "active";
+				if (status === "active") brake = resetBrakeState();
 				const next = { ...goal, status, updatedAt: now };
 				persist(pi, ctx, next);
 				emitGoalEvent(pi, status === "active" ? "resumed" : "paused", next);
@@ -375,9 +508,10 @@ export default function piGoal(pi: ExtensionAPI) {
 
 	pi.on("session_start", (event, ctx) => {
 		const restored = latestStateFromSession(ctx);
-		goal = restored.goal;
+		goal = normalizeGoalState(restored.goal);
 		statusBarEnabled = restored.statusBarEnabled;
 		continuationQueued = false;
+		brake = resetBrakeState();
 		activeTurnStartedAt = null;
 		activeGoalThisTurnId = null;
 		// Keep create_goal available, and hide read/update tools unless there is an active goal to pursue.
@@ -407,11 +541,15 @@ export default function piGoal(pi: ExtensionAPI) {
 	});
 
 	pi.on("turn_start", (_event, _ctx) => {
+		clearContinuationTimer();
 		activeTurnStartedAt = Date.now();
 		activeGoalThisTurnId = goal?.status === "active" ? goal.id : null;
 	});
 
 	pi.on("turn_end", (event, ctx) => {
+		const message = event.message as { role?: string; stopReason?: string; errorMessage?: string } | undefined;
+		settledOutcome = outcomeOf(message);
+		lastErrorMessage = message?.stopReason === "error" ? (message.errorMessage ?? "") : "";
 		if (!goal || activeGoalThisTurnId !== goal.id) {
 			activeTurnStartedAt = null;
 			activeGoalThisTurnId = null;
@@ -428,8 +566,20 @@ export default function piGoal(pi: ExtensionAPI) {
 		}
 	});
 
-	pi.on("agent_end", (_event, ctx) => {
+	// Die Fortsetzung wird erst nach `agent_settled` geplant. Dann hat Pi seinen eigenen
+	// Wiederholungs- und Komprimierungsversuch beendet, und ein Fehlerturn fuehrt nicht
+	// zu einer sofortigen zweiten Fortsetzung.
+	pi.on("agent_settled", (_event, ctx) => {
+		const outcome = settledOutcome;
+		settledOutcome = null;
 		if (!goal || goal.status !== "active" || ctx.hasPendingMessages()) return;
-		queueContinuation(pi, goal);
+		if (outcome === "error" || outcome === "aborted") {
+			applyBrake(pi, ctx, outcome);
+			return;
+		}
+		if (outcome === "success") {
+			brake = resetBrakeState();
+			queueContinuation(pi, goal);
+		}
 	});
 }

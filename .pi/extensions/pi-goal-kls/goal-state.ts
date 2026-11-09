@@ -1,3 +1,5 @@
+import type { ErrorKind } from "./error-policy";
+
 export type GoalStatus = "active" | "paused" | "budget_limited" | "complete";
 
 export type GoalState = {
@@ -10,6 +12,14 @@ export type GoalState = {
 	timeUsedSeconds: number;
 	createdAt: number;
 	updatedAt: number;
+	/** Aufeinanderfolgende Fehlerturns seit dem letzten erfolgreichen Turn. */
+	consecutiveErrors?: number;
+	/** Klassifikation des letzten Fehlers. */
+	lastErrorKind?: ErrorKind | null;
+	/** Zeitpunkt des letzten Fehlers in Millisekunden. */
+	lastErrorAt?: number | null;
+	/** Grund für eine automatische Pause durch die Fehler-Bremse. */
+	pauseReason?: string | null;
 };
 
 export type GoalEventKind = "active" | "continuation" | "paused" | "resumed" | "cleared" | "budget_limited" | "complete";
@@ -98,6 +108,22 @@ export function createGoalState(objective: string, tokenBudget: number | null, n
 		timeUsedSeconds: 0,
 		createdAt: now,
 		updatedAt: now,
+		consecutiveErrors: 0,
+		lastErrorKind: null,
+		lastErrorAt: null,
+		pauseReason: null,
+	};
+}
+
+/** Fehlende Felder aus älteren Sitzungen ergänzen, ohne den Zustand zu verlieren. */
+export function normalizeGoalState(state: GoalState | null | undefined): GoalState | null {
+	if (!state) return null;
+	return {
+		...state,
+		consecutiveErrors: state.consecutiveErrors ?? 0,
+		lastErrorKind: state.lastErrorKind ?? null,
+		lastErrorAt: state.lastErrorAt ?? null,
+		pauseReason: state.pauseReason ?? null,
 	};
 }
 
@@ -112,4 +138,27 @@ export function accountGoalTurn(state: GoalState, tokenDelta: number, elapsedSec
 		next = { ...next, status: "budget_limited" };
 	}
 	return next;
+}
+
+/** Ein Fehlerturn zählt gegen den Fehlerzähler. */
+export function accountGoalError(state: GoalState, kind: ErrorKind, now = Date.now()): GoalState {
+	return {
+		...state,
+		consecutiveErrors: (state.consecutiveErrors ?? 0) + 1,
+		lastErrorKind: kind,
+		lastErrorAt: now,
+		updatedAt: now,
+	};
+}
+
+/** Ein erfolgreicher Turn setzt den Fehlerzähler zurück. */
+export function clearGoalErrors(state: GoalState, now = Date.now()): GoalState {
+	if (!state.consecutiveErrors && !state.lastErrorKind && !state.lastErrorAt) return state;
+	return {
+		...state,
+		consecutiveErrors: 0,
+		lastErrorKind: null,
+		lastErrorAt: null,
+		updatedAt: now,
+	};
 }

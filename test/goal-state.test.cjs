@@ -12,9 +12,10 @@ const {
 	goalUsage,
 	normalizeTokenBudget,
 	parseTokenBudget,
+	normalizeGoalState,
 	statusLine,
 	truncateObjective,
-} = jiti("../.pi/extensions/pi-goal/goal-state.ts");
+} = jiti("../.pi/extensions/pi-goal-kls/goal-state.ts");
 
 test("parseTokenBudget returns trimmed objective with no budget", () => {
 	assert.deepEqual(parseTokenBudget("  finish the migration  "), {
@@ -129,6 +130,10 @@ test("createGoalState creates a deterministic active goal when time and random a
 		timeUsedSeconds: 0,
 		createdAt: 42,
 		updatedAt: 42,
+		consecutiveErrors: 0,
+		lastErrorKind: null,
+		lastErrorAt: null,
+		pauseReason: null,
 	});
 });
 
@@ -163,4 +168,23 @@ test("accountGoalTurn clamps negative usage deltas", () => {
 		timeUsedSeconds: 0,
 		updatedAt: 55,
 	});
+});
+
+test("normalizeGoalState ergaenzt fehlende Fehlerfelder aus aelteren Sitzungen", () => {
+	const restored = normalizeGoalState({
+		version: 1,
+		id: "1-2",
+		objective: "ship it",
+		status: "active",
+		tokenBudget: null,
+		tokensUsed: 0,
+		timeUsedSeconds: 0,
+		createdAt: 1,
+		updatedAt: 1,
+	});
+	assert.equal(restored.consecutiveErrors, 0);
+	assert.equal(restored.lastErrorKind, null);
+	assert.equal(restored.lastErrorAt, null);
+	assert.equal(restored.pauseReason, null);
+	assert.equal(normalizeGoalState(null), null);
 });
