@@ -12,7 +12,7 @@ const {
 	describeKind,
 	normalizeSignature,
 	resetBrakeState,
-} = jiti("../.pi/extensions/pi-goal-brake/error-policy.ts");
+} = jiti("../.pi/extensions/pi-simple-goal/error-policy.ts");
 
 test("classifyError trennt Verbindung, Ratelimit, Kontingent und Kontextüberlauf", () => {
 	assert.equal(classifyError("Connection error."), "connection");

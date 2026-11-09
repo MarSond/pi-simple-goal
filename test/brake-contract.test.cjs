@@ -3,7 +3,7 @@ const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { test } = require("node:test");
 
-const indexSource = readFileSync(join(__dirname, "../.pi/extensions/pi-goal-brake/index.ts"), "utf8");
+const indexSource = readFileSync(join(__dirname, "../.pi/extensions/pi-simple-goal/index.ts"), "utf8");
 
 test("die Fortsetzung wird nach agent_settled geplant, nicht nach agent_end", () => {
 	assert.match(indexSource, /pi\.on\("agent_settled"/);
@@ -20,7 +20,7 @@ test("die Bremse nutzt Klassifikation, Schwelle und Backoff aus der Konfiguratio
 	assert.match(indexSource, /classifyError\(lastErrorMessage\)/);
 	assert.match(indexSource, /decide\(brake, kind, signature, policy\)/);
 	assert.match(indexSource, /loadPolicy\(\)/);
-	assert.match(indexSource, /pi-goal-brake\.json/);
+	assert.match(indexSource, /pi-simple-goal\.json/);
 });
 
 test("eine wartende Fortsetzung wird verworfen, sobald das Goal nicht mehr aktiv ist", () => {

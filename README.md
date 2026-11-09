@@ -1,4 +1,4 @@
-# pi-goal-brake
+# pi-simple-goal
 
 Persistent autonomous goals for [pi](https://github.com/badlogic/pi-mono), with an error brake.
 
@@ -23,19 +23,19 @@ down, with zero tool calls and zero work done. Upstream tracks this as
    [`manthedan/pi-goal`](https://github.com/manthedan/pi-goal) (MIT).
 3. **Error classes.** `connection`, `rate_limit`, `token_exhausted`, `quota` and `other` are told apart. A context
    overflow and an exhausted provider quota pause immediately, a connection error is retried with a backoff.
-4. **Configuration.** Thresholds and wait times come from `~/.pi/agent/pi-goal-brake.json` instead of being hardcoded.
+4. **Configuration.** Thresholds and wait times come from `~/.pi/agent/pi-simple-goal.json` instead of being hardcoded.
 5. **Observable state.** The goal state carries the error count, the last error class and the pause reason, and
    `/goal status` shows them.
 
 ## Install
 
 ```bash
-pi install git:github.com/seladi81/pi-goal-brake@v1
+pi install git:github.com/MarSond/pi-simple-goal@v1
 ```
 
 ## Configuration
 
-Create `~/.pi/agent/pi-goal-brake.json`. Every key is optional, the values below are the defaults.
+Create `~/.pi/agent/pi-simple-goal.json`. Every key is optional, the values below are the defaults.
 
 ```json
 {
@@ -54,7 +54,7 @@ Create `~/.pi/agent/pi-goal-brake.json`. Every key is optional, the values below
 | `pauseOnTokenExhausted` | Pause instead of retrying after a context overflow |
 
 The file is read on every decision, so a change takes effect without a reload. The path can be overridden with the
-environment variable `PI_GOAL_BRAKE_CONFIG`.
+environment variable `PI_SIMPLE_GOAL_CONFIG`.
 
 ## Behaviour after a failed turn
 
