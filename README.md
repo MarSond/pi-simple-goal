@@ -26,6 +26,15 @@ down, with zero tool calls and zero work done. Upstream tracks this as
 4. **Configuration.** Thresholds and wait times come from `~/.pi/agent/pi-simple-goal.json` instead of being hardcoded.
 5. **Observable state.** The goal state carries the error count, the last error class and the pause reason, and
    `/goal status` shows them.
+6. **Short continuation text.** Automatic continuations carry the objective and the live budget instead of the full
+   audit essay. The full text is sent once per activation and resume. Upstream PR #9.
+7. **Waiting status.** The model can mark the goal `waiting` and end the turn without a continuation while it waits for
+   an external event such as a background job notification. The goal returns to active on the next turn.
+   Upstream PR #8.
+8. **Stall guard.** After five automatic continuations without new input the goal pauses itself, because it is most
+   likely repeating the same blocked result. Upstream PR #9.
+9. **State per extension instance.** Two sessions in the same process keep separate goal state, continuations and turn
+   accounting. Upstream PR #12.
 
 ## Install
 
@@ -55,6 +64,15 @@ Create `~/.pi/agent/pi-simple-goal.json`. Every key is optional, the values belo
 
 The file is read on every decision, so a change takes effect without a reload. The path can be overridden with the
 environment variable `PI_SIMPLE_GOAL_CONFIG`.
+
+## Waiting without burning turns
+
+When the only remaining action is to wait for an external event, the model marks the goal `waiting` and ends the turn.
+No continuation is scheduled, and the goal returns to `active` as soon as the next turn starts.
+
+```text
+update_goal({ status: "waiting" })
+```
 
 ## Behaviour after a failed turn
 
@@ -124,4 +142,5 @@ npm run check
 ## License
 
 MIT. Upstream copyright (c) 2026 Michael Livshits is preserved in `LICENSE`. The error brake follows ideas from
-`manthedan/pi-goal` and `patlux/pi-goal`, both MIT.
+`manthedan/pi-goal` and `patlux/pi-goal`, both MIT. The continuation text, the waiting status, the stall guard and the
+per-instance state are the upstream pull requests #9, #8 and #12, adapted to the brake.

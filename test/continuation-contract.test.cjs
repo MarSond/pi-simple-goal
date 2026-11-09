@@ -8,6 +8,6 @@ const indexSource = readFileSync(join(__dirname, "../.pi/extensions/pi-simple-go
 test("persisting a non-active goal cancels any queued continuation", () => {
 	assert.match(
 		indexSource,
-		/if \(next\?\.status !== "active"\) \{\s*continuationQueued = false;\s*clearContinuationTimer\(\);\s*\}/,
+		/if \(next\?\.status !== "active"\) \{\s*continuationQueued = false;\s*clearContinuationTimer\(\);\s*consecutiveAutoContinuations = 0;\s*autoContinuationPending = false;\s*\}/,
 	);
 });
