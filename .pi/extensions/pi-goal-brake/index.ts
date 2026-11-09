@@ -44,10 +44,10 @@ let brake: BrakeState = createBrakeState();
 let settledOutcome: "success" | "error" | "aborted" | null = null;
 let lastErrorMessage = "";
 
-const CONFIG_ENV = "PI_GOAL_KLS_CONFIG";
+const CONFIG_ENV = "PI_GOAL_BRAKE_CONFIG";
 
 function configPath(): string {
-	return process.env[CONFIG_ENV] ?? join(homedir(), ".pi", "agent", "pi-goal-kls.json");
+	return process.env[CONFIG_ENV] ?? join(homedir(), ".pi", "agent", "pi-goal-brake.json");
 }
 
 function loadPolicy(): BrakePolicy {

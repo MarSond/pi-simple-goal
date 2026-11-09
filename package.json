@@ -1,7 +1,7 @@
 {
-  "name": "pi-goal-kls",
+  "name": "pi-goal-brake",
   "version": "1.0.0",
-  "description": "Persistent autonomous goals for pi, with a fail-safe error brake (fork of pi-goal)",
+  "description": "Persistent autonomous goals for pi, with an error brake (fork of pi-goal 0.1.7, MIT)",
   "type": "commonjs",
   "keywords": [
     "pi",
@@ -18,7 +18,7 @@
   ],
   "pi": {
     "extensions": [
-      ".pi/extensions/pi-goal-kls"
+      ".pi/extensions/pi-goal-brake"
     ],
     "skills": [
       "skills"
@@ -32,7 +32,7 @@
     "jiti": "^2.7.0"
   },
   "scripts": {
-    "check": "pi --no-extensions -e ./.pi/extensions/pi-goal-kls/index.ts --list-models __pi_goal_load_check__",
+    "check": "pi --no-extensions -e ./.pi/extensions/pi-goal-brake/index.ts --list-models __pi_goal_load_check__",
     "test": "node --test test/**/*.test.cjs",
     "pack:dry": "npm pack --dry-run"
   },
@@ -40,6 +40,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/seladi81/pi-goal-kls.git"
+    "url": "git+https://github.com/seladi81/pi-goal-brake.git"
   }
 }
