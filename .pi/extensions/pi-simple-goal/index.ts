@@ -236,6 +236,9 @@ export default function piGoal(pi: ExtensionAPI) {
 	// Gezaehlt werden nur automatische Fortsetzungen, nicht ein Turn aus einer echten Nutzernachricht.
 	let consecutiveAutoContinuations = 0;
 	let autoContinuationPending = false;
+	// Ein Wartezustand gilt erst, wenn der Lauf abgeschlossen ist. Innerhalb desselben Laufs folgt nach
+	// dem Werkzeugaufruf noch ein Turn, und der darf das Warten nicht sofort wieder aufheben.
+	let waitingSettled = false;
 	const MAX_CONSECUTIVE_AUTO_CONTINUATIONS = 5;
 
 	function clearContinuationTimer() {
@@ -610,7 +613,8 @@ export default function piGoal(pi: ExtensionAPI) {
 
 	pi.on("turn_start", (_event, ctx) => {
 		clearContinuationTimer();
-		if (goal?.status === "waiting" && !autoContinuationPending) {
+		if (goal?.status === "waiting" && waitingSettled && !autoContinuationPending) {
+			waitingSettled = false;
 			// Ein externer Turn ist angekommen, etwa eine Nutzernachricht oder eine Ereignismeldung.
 			// Das Goal waechst wieder auf und die normale Fortsetzung laeuft weiter.
 			goal = { ...goal, status: "active", updatedAt: Date.now(), pauseReason: null };
@@ -654,6 +658,7 @@ export default function piGoal(pi: ExtensionAPI) {
 	pi.on("agent_settled", (_event, ctx) => {
 		const outcome = settledOutcome;
 		settledOutcome = null;
+		waitingSettled = goal?.status === "waiting";
 		if (!goal || goal.status !== "active" || ctx.hasPendingMessages()) return;
 		if (outcome === "error" || outcome === "aborted") {
 			applyBrake(pi, ctx, outcome);
