@@ -473,10 +473,13 @@ export default function piGoal(pi: ExtensionAPI) {
 					return { content: [{ type: "text", text: JSON.stringify({ goal }, null, 2) }], details: { goal } };
 				}
 				const waiting: GoalState = { ...goal, status: "waiting", updatedAt: now };
+				// Kein sendMessage: Jede Zustellung im Gespraech startet einen Turn, und `turn_start`
+				// setzt den Wartezustand wieder auf aktiv. Das Ergebnis ist eine Schleife aus Warten und
+				// Aufwachen im Sekundentakt, im Livelauf mit sieben Runden in drei Sekunden gemessen.
+				// Der Zustand steht in der Statuszeile und im Session-Eintrag; das Modell hat seine
+				// Anweisung bereits im Ergebnis dieses Aufrufs.
 				persist(pi, ctx, waiting);
-				// nextTurn: darf den Agenten nicht wecken. Eine Zustellung als steer oder followUp wuerde
-				// einen Turn starten, das Goal damit wieder aktivieren und die Schleife neu scharf machen.
-				emitGoalEvent(pi, "waiting", waiting, { deliverAs: "nextTurn" });
+				ctx.ui.notify("Goal wartet auf ein externes Ereignis und setzt sich beim naechsten Turn fort.", "info");
 				return {
 					content: [{ type: "text", text: JSON.stringify({ goal: waiting }, null, 2) }],
 					details: { goal: waiting },
@@ -607,10 +610,10 @@ export default function piGoal(pi: ExtensionAPI) {
 
 	pi.on("turn_start", (_event, ctx) => {
 		clearContinuationTimer();
-		if (goal?.status === "waiting") {
+		if (goal?.status === "waiting" && !autoContinuationPending) {
 			// Ein externer Turn ist angekommen, etwa eine Nutzernachricht oder eine Ereignismeldung.
 			// Das Goal waechst wieder auf und die normale Fortsetzung laeuft weiter.
-			goal = { ...goal, status: "active", updatedAt: Date.now() };
+			goal = { ...goal, status: "active", updatedAt: Date.now(), pauseReason: null };
 			persist(pi, ctx, goal);
 		}
 		if (autoContinuationPending) {

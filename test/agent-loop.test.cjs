@@ -71,8 +71,9 @@ test("ein wartendes Goal unterdrueckt die Fortsetzung und wacht mit dem naechste
 	assert.equal(h.currentGoal().status, "waiting");
 	// Das Wartungsereignis darf den Agenten nicht wecken, sonst startet es einen Turn,
 	// aktiviert das Goal wieder und schaerft die Schleife neu.
-	assert.equal(h.sent.at(-1).options?.deliverAs, "nextTurn");
-	assert.equal(h.sent.at(-1).options?.triggerTurn, undefined);
+	// Kein sendMessage beim Warten: jede Zustellung startet einen Turn, `turn_start` setzt den
+	// Wartezustand wieder auf aktiv und die Schleife beginnt von vorn.
+	assert.notEqual(h.sent.at(-1).kind, "waiting");
 
 	// Im selben Turn wird keine Fortsetzung geplant. Der Turn endet ohne neuen turn_start,
 	// sonst waecht das Goal sofort wieder auf.

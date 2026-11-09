@@ -46,8 +46,9 @@ test("die Kette automatischer Fortsetzungen ist begrenzt und wird zurueckgesetzt
 test("der Wartezustand unterdrueckt die Fortsetzung und wacht beim naechsten Turn auf", () => {
 	assert.match(indexSource, /enum: \["complete", "waiting"\]/);
 	assert.match(indexSource, /status: "waiting"/);
-	assert.match(indexSource, /if \(goal\?\.status === "waiting"\) \{/);
-	assert.match(indexSource, /deliverAs: "nextTurn"/);
+	assert.match(indexSource, /if \(goal\?\.status === "waiting" && !autoContinuationPending\) \{/);
+	// Das Warten darf kein sendMessage ausloesen: jede Zustellung startet einen Turn und hebt den Zustand auf.
+	assert.doesNotMatch(indexSource, /deliverAs: "nextTurn"/);
 });
 
 // Der Zustand gehoert je Extension-Instanz, damit zwei Sitzungen im selben Prozess sich nicht mischen.
