@@ -48,6 +48,9 @@ For Pi token budgets:
 
 ## Writing standards
 
+For ongoing work, define permitted task sources, how to choose the next useful action, and the handover required
+when the user ends the assignment. Keep workflow-specific procedures in the relevant skill.
+
 Make the goal self-contained. It should survive context compaction and continuation turns. Include exact command names when known, but do not invent commands. Say “run the relevant project checks identified in AGENTS.md/package scripts” only when exact commands are unknown and the agent can inspect them.
 
 Make completion evidence-based. The goal should require the agent to inspect real artifacts before declaring success: files changed, tests passed, benchmark numbers, rendered screenshots, logs, PR checks, or a written audit. Do not let “tests pass” be the only evidence unless the tests actually cover every requirement.

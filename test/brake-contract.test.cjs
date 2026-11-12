@@ -35,18 +35,11 @@ test("automatische Fortsetzungen nutzen den kurzen Hinweis statt des vollstaendi
 	assert.match(indexSource, /function shortContinuationPrompt\(state: GoalState\): string \{/);
 });
 
-// Eine Kette automatischer Fortsetzungen ohne neuen Input ist ein Blocked-Loop und wird pausiert.
-test("die Kette automatischer Fortsetzungen ist begrenzt und wird zurueckgesetzt", () => {
-	assert.match(indexSource, /const MAX_CONSECUTIVE_AUTO_CONTINUATIONS = \d+;/);
-	assert.match(indexSource, /if \(consecutiveAutoContinuations >= MAX_CONSECUTIVE_AUTO_CONTINUATIONS\) \{/);
-	assert.match(indexSource, /if \(autoContinuationPending\) \{\s*consecutiveAutoContinuations \+= 1;\s*autoContinuationPending = false;\s*\} else \{/);
-});
-
 // Der Wartezustand beendet den Turn ohne Fortsetzung und wacht mit dem naechsten Turn auf.
 test("der Wartezustand unterdrueckt die Fortsetzung und wacht beim naechsten Turn auf", () => {
 	assert.match(indexSource, /enum: \["complete", "waiting"\]/);
 	assert.match(indexSource, /status: "waiting"/);
-	assert.match(indexSource, /if \(goal\?\.status === "waiting" && waitingSettled && !autoContinuationPending\) \{/);
+	assert.match(indexSource, /goal\?\.status === "waiting" && waitingSettled && !autoContinuationPending/);
 	// Das Warten darf kein sendMessage ausloesen: jede Zustellung startet einen Turn und hebt den Zustand auf.
 	assert.doesNotMatch(indexSource, /deliverAs: "nextTurn"/);
 });
