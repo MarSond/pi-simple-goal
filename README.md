@@ -31,9 +31,9 @@ down, with zero tool calls and zero work done. Upstream tracks this as
 7. **Waiting status.** The model can mark the goal `waiting` and end the turn without a continuation while it waits for
    an external event such as a background job notification. The goal returns to active on the next turn.
    Upstream PR #8.
-8. **Schleifenbremse.** Nach fünf automatischen Läufen ohne Werkzeugaufruf pausiert das Goal. Werkzeug-Folgeturns gelten
-   nicht als neuer Nutzerinput. Werkzeugnutzung unterbricht die Kette, beweist aber keinen fachlichen Fortschritt.
-   Diese einfache Bremse ersetzt keinen konkreten Arbeitsauftrag. Grundlage: Upstream PR #9.
+8. **Tool-free continuation guard.** After five automatic runs without a tool call, the goal pauses.
+   Tool-result follow-up turns are not new user input. Tool activity breaks this simple guard but does not prove
+   useful progress. Adapted from upstream PR #9.
 9. **State per extension instance.** Two sessions in the same process keep separate goal state, continuations and turn
    accounting. Upstream PR #12.
 
@@ -75,15 +75,8 @@ No continuation is scheduled, and the goal returns to `active` as soon as the ne
 update_goal({ status: "waiting" })
 ```
 
-`waiting` ist kein Timer und kein GitHub-Abonnement. Es benötigt eine konkrete Ereigniszustellung an die Sitzung,
-etwa die Fertigmeldung eines bereits laufenden Hintergrundjobs. Ein Shelljob oder ein GitHub-Kommentar erzeugt allein
-keine solche Meldung. Gibt es unabhängige Arbeit im freigegebenen Scope, wird weitergearbeitet.
-
-`paused` bleibt dagegen auch bei einer normalen Nachricht pausiert. Ein Nutzerabbruch, `/goal pause` oder die Fehlerbremse
-stoppt die automatische Fortsetzung; erst `/goal resume` aktiviert sie wieder. Der Agent kann den Zustand mit `get_goal`
-lesen und einen erfüllten Auftrag mit `update_goal({ status: "complete" })` abschließen, ohne ihn vorher zu reaktivieren.
-Bei einem ausdrücklich bis zur Nutzerbeendigung laufenden Dienstauftrag gehört die vereinbarte Übergabe zum Abschluss.
-Eine Unterbrechung allein erfüllt keinen Auftrag. Stopp-Anweisungen versteht das Modell im Kontext; das Plugin parst kein Stoppwort.
+Use `waiting` only for a required external event that will reach this session, such as a background job notification.
+It does not schedule a wake-up. Keep working when another useful action toward the objective is available.
 
 ## Behaviour after a failed turn
 
@@ -121,6 +114,10 @@ The same Pi agent keeps running normal turns in the same session context until i
 pauses it. Reloading Pi pauses an active goal instead of silently resuming it; use `/goal resume` to continue.
 The final turn is still accounted even when the model completes the goal mid-turn.
 
+An interrupted or manually paused goal stays paused across ordinary messages. Use `/goal resume` to continue it.
+Reading its state or marking an achieved goal complete does not require resuming it. The same completion criteria
+apply in every state; pausing alone never completes a goal.
+
 ## What it adds
 
 - `pi-goal-writer` skill: draft and review strong `/goal` objectives with evidence-based success criteria
@@ -132,8 +129,8 @@ The final turn is still accounted even when the model completes the goal mid-tur
 - `/goal statusbar on|off`: show or hide the footer status line
 - `create_goal` tool: model can set or replace the current goal only when explicitly requested
 - `get_goal` tool: read current goal state
-- `update_goal`: Modellwerkzeug für `complete` und `waiting`; kein Resume und keine Pause
-- `get_goal` bleibt bei vorhandenem Goal in jedem Zustand sichtbar; `update_goal` bis zum Abschluss ebenfalls
+- `update_goal` tool: mark the goal `complete`, or `waiting` for an external event
+- `get_goal` stays available whenever a goal exists; `update_goal` stays available until completion
 - footer status: `Pursuing goal`, `Goal paused`, `Goal achieved`, or `Goal unmet`
 
 ## State

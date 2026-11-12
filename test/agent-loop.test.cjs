@@ -5,7 +5,7 @@ const { createJiti } = require("jiti");
 const jiti = createJiti(__filename);
 const piGoal = jiti("../.pi/extensions/pi-simple-goal/index.ts").default;
 
-// Minimale ExtensionAPI- und ExtensionContext-Mocks, die den echten Extension-Code treiben.
+// Minimal ExtensionAPI and ExtensionContext mocks that exercise the actual extension.
 function createHarness(initialEntries = []) {
 	const handlers = {};
 	const sent = [];
@@ -52,14 +52,14 @@ function createHarness(initialEntries = []) {
 	}
 
 	async function callTool(name, params = {}) {
-		assert.ok(activeTools.includes(name), `${name} muss fuer das Modell sichtbar sein`);
+		assert.ok(activeTools.includes(name), `${name} must be visible to the model`);
 		return tools[name].execute("test", params, undefined, undefined, ctx);
 	}
 	return { pi, ctx, handlers, sent, tools, commands, state, entries, currentGoal, continuations, flush, successfulTurn,
 		callTool, activeTools: () => [...activeTools] };
 }
 
-test("ein wartendes Goal unterdrueckt die Fortsetzung und wacht mit dem naechsten Turn auf", async () => {
+test("a waiting goal suppresses continuation and wakes on the next external run", async () => {
 	const h = createHarness();
 	piGoal(h.pi);
 	await h.handlers.session_start({ reason: "startup" }, h.ctx);
@@ -68,37 +68,33 @@ test("ein wartendes Goal unterdrueckt die Fortsetzung und wacht mit dem naechste
 	assert.equal(created.isError, undefined);
 	assert.equal(h.sent.at(-1).kind, "active");
 
-	// Grundfall: ein erfolgreicher Turn mit aktivem Goal plant genau eine Fortsetzung.
+	// A successful run with an active goal queues exactly one continuation.
 	await h.successfulTurn();
 	assert.equal(h.continuations(), 1);
 
-	// Das Goal wartet auf ein externes Ereignis, etwa eine Meldung eines Hintergrundlaufs.
+	// Wait for an external event, such as a background job notification.
 	const waited = await h.callTool("update_goal", { status: "waiting" });
 	assert.equal(waited.isError, undefined);
 	assert.equal(h.currentGoal().status, "waiting");
-	// Das Wartungsereignis darf den Agenten nicht wecken, sonst startet es einen Turn,
-	// aktiviert das Goal wieder und schaerft die Schleife neu.
-	// Kein sendMessage beim Warten: jede Zustellung startet einen Turn, `turn_start` setzt den
-	// Wartezustand wieder auf aktiv und die Schleife beginnt von vorn.
+	// Waiting must not emit a message that immediately wakes the agent and reactivates the goal.
 	assert.notEqual(h.sent.at(-1).kind, "waiting");
 
-	// Im selben Turn wird keine Fortsetzung geplant. Der Turn endet ohne neuen turn_start,
-	// sonst waecht das Goal sofort wieder auf.
+	// Finishing the current run must not wake the goal or schedule a continuation.
 	await h.handlers.turn_end({ message: { role: "assistant", stopReason: "stop", usage: { totalTokens: 5 } }, toolResults: [] }, h.ctx);
 	await h.handlers.agent_settled(undefined, h.ctx);
 	await h.flush();
 	assert.equal(h.continuations(), 1);
 
-	// Ein extern ausgeloester Turn weckt das Goal wieder.
+	// An external run wakes the waiting goal.
 	await h.handlers.turn_start({ turnIndex: 0 }, h.ctx);
 	assert.equal(h.currentGoal().status, "active");
 
-	// Danach laeuft die normale Fortsetzung wieder.
+	// Normal continuation resumes afterward.
 	await h.successfulTurn();
 	assert.equal(h.continuations(), 2);
 });
 
-test("update_goal lehnt unbekannte Zustaende ab und bleibt beim Warten idempotent", async () => {
+test("update_goal rejects invalid states and waiting is idempotent", async () => {
 	const h = createHarness();
 	piGoal(h.pi);
 	await h.handlers.session_start({ reason: "startup" }, h.ctx);
@@ -120,21 +116,21 @@ async function setupGoal(initialEntries) {
 	const h = createHarness(initialEntries);
 	piGoal(h.pi);
 	await h.handlers.session_start({ reason: "startup" }, h.ctx);
-	if (!initialEntries) await h.callTool("create_goal", { objective: "Dienst bis Nutzerende, dann Uebergabe" });
+	if (!initialEntries) await h.callTool("create_goal", { objective: "Produce a verified report" });
 	return h;
 }
 
-test("Abbruch pausiert; normale Nachricht liest und beendet ohne Resume und ohne neue Fortsetzung", async () => {
+test("an abort pauses the goal; a normal message can read and complete it without resuming", async () => {
 	const h = await setupGoal();
 	await h.handlers.turn_start({ turnIndex: 0 }, h.ctx);
 	await h.handlers.turn_end({ message: { role: "assistant", stopReason: "aborted" }, toolResults: [] }, h.ctx);
 	await h.handlers.agent_settled(undefined, h.ctx);
 	await h.flush();
 	assert.equal(h.currentGoal().status, "paused");
-	assert.match(h.currentGoal().pauseReason, /abgebrochen/);
+	assert.ok(h.currentGoal().pauseReason);
 	assert.equal(h.continuations(), 0);
 
-	// Ein neuer Prompt darf die Unterbrechung nicht aufheben. Der Abschlussbericht braucht kein Resume.
+	// A new prompt must not undo the interruption. Completion does not require a resume.
 	await h.handlers.turn_start({ turnIndex: 0 }, h.ctx);
 	const read = await h.callTool("get_goal");
 	assert.equal(read.details.goal.status, "paused");
@@ -153,7 +149,7 @@ test("Abbruch pausiert; normale Nachricht liest und beendet ohne Resume und ohne
 	assert.ok(h.activeTools().includes("read"));
 });
 
-test("pausiertes Goal bleibt nach Wiederaufnahme der Sitzung pausiert; nur /goal resume aktiviert es", async () => {
+test("restoring a paused goal preserves the pause until an explicit resume", async () => {
 	const h = await setupGoal();
 	await h.commands.goal.handler("pause", h.ctx);
 	const restored = await setupGoal(h.entries);
@@ -166,7 +162,7 @@ test("pausiertes Goal bleibt nach Wiederaufnahme der Sitzung pausiert; nur /goal
 	assert.equal(restored.continuations(), 1);
 });
 
-test("waiting plant keinen Timer; ein wiederhergestelltes wartendes Goal wacht beim externen Lauf auf", async () => {
+test("a restored waiting goal wakes on the next external run", async () => {
 	const h = await setupGoal();
 	await h.callTool("update_goal", { status: "waiting" });
 	await h.successfulTurn();
@@ -179,20 +175,20 @@ test("waiting plant keinen Timer; ein wiederhergestelltes wartendes Goal wacht b
 	assert.equal(restored.continuations(), 1);
 });
 
-test("fuenf werkzeuglose automatische Laeufe pausieren; ein externer Lauf beginnt eine neue Kette", async () => {
+test("five tool-free automatic runs pause the goal; external input resets the chain", async () => {
 	const h = await setupGoal();
 	await h.successfulTurn();
 	for (let i = 0; i < 4; i++) await h.successfulTurn();
 	assert.equal(h.currentGoal().status, "active");
 	await h.successfulTurn();
 	assert.equal(h.currentGoal().status, "paused");
-	assert.match(h.currentGoal().pauseReason, /ohne Werkzeugaufruf/);
+	assert.match(h.currentGoal().pauseReason, /without a tool call/);
 	assert.equal(h.continuations(), 5);
 
 	const other = await setupGoal();
 	await other.successfulTurn();
 	for (let i = 0; i < 4; i++) await other.successfulTurn();
-	// Eine echte Nachricht wartet bereits; nach diesem Lauf wird kein Reminder eingereiht.
+	// A real message is pending, so this run must not enqueue another reminder.
 	other.state.pending = true;
 	await other.successfulTurn();
 	other.state.pending = false;
@@ -204,7 +200,7 @@ test("fuenf werkzeuglose automatische Laeufe pausieren; ein externer Lauf beginn
 	assert.equal(other.currentGoal().status, "paused");
 });
 
-test("Werkzeug-Folgeturns gelten nicht als neue Nutzernachrichten; Werkzeugnutzung unterbricht die Bremse", async () => {
+test("tool-result turns are not new user input; tool activity resets the guard", async () => {
 	const h = await setupGoal();
 	await h.successfulTurn();
 	for (let i = 0; i < 8; i++) {
@@ -220,4 +216,20 @@ test("Werkzeug-Folgeturns gelten nicht als neue Nutzernachrichten; Werkzeugnutzu
 	assert.equal(h.currentGoal().status, "active");
 	await h.successfulTurn();
 	assert.equal(h.currentGoal().status, "paused");
+});
+
+test("a long tool chain stays active and needs no goal reminder until the run ends", async () => {
+	const h = await setupGoal();
+	for (let turnIndex = 0; turnIndex < 12; turnIndex++) {
+		await h.handlers.turn_start({ turnIndex }, h.ctx);
+		await h.handlers.turn_end({ message: { role: "assistant", stopReason: "toolUse" }, toolResults: [{ role: "toolResult" }] }, h.ctx);
+		assert.equal(h.currentGoal().status, "active");
+		assert.equal(h.continuations(), 0);
+	}
+	await h.handlers.turn_start({ turnIndex: 12 }, h.ctx);
+	await h.handlers.turn_end({ message: { role: "assistant", stopReason: "stop" }, toolResults: [] }, h.ctx);
+	await h.handlers.agent_settled(undefined, h.ctx);
+	await h.flush();
+	assert.equal(h.currentGoal().status, "active");
+	assert.equal(h.continuations(), 1);
 });

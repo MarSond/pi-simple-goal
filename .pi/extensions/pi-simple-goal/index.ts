@@ -175,8 +175,7 @@ Before deciding that the goal is achieved, perform a completion audit against th
 
 Do not rely on intent, partial progress, elapsed effort, memory of earlier work, or a plausible final answer as proof of completion. Only mark the goal achieved when the audit shows that the objective has actually been achieved and no required work remains. If any requirement is missing, incomplete, or unverified, keep working instead of marking the goal complete. If the objective is achieved, call update_goal with status \"complete\" so usage accounting is preserved.
 
-Do not mark a goal complete merely because the budget is nearly exhausted or because you are stopping work. For an explicitly user-ended service objective, completion means carrying out the user's end instruction and the agreed handover; unfinished implementation objectives remain unfinished.
-Use status="waiting" only when no independent work toward the objective is currently possible and an external event has a concrete delivery mechanism, such as an already-running background job that will notify this session. It is not a timer and does not poll GitHub or wake on its own. After marking waiting, end the turn. A paused goal requires /goal resume; a normal message does not resume it.`;
+Do not mark a goal complete merely because the budget is nearly exhausted or because you are stopping work. Keep working while useful actions toward the objective remain. Use status="waiting" only for a required external event that will reach this session; it does not schedule a wake-up. After marking waiting, end the turn.`;
 }
 
 /**
@@ -229,8 +228,8 @@ export default function piGoal(pi: ExtensionAPI) {
 	let brake: BrakeState = createBrakeState();
 	let settledOutcome: "success" | "error" | "aborted" | null = null;
 	let lastErrorMessage = "";
-	// Werkzeuglose automatische Laeufe begrenzen. Werkzeug-Folgeturns sind kein neuer Nutzerinput;
-	// Werkzeugnutzung unterbricht diese einfache Bremse, belegt aber noch keinen fachlichen Fortschritt.
+	// Bound tool-free automatic runs. Tool-result follow-up turns are not new user input.
+	// Tool activity breaks this simple guard but does not prove useful progress.
 	let consecutiveAutoContinuations = 0;
 	let autoContinuationPending = false;
 	// Ein Wartezustand gilt erst, wenn der Lauf abgeschlossen ist. Innerhalb desselben Laufs folgt nach
@@ -438,8 +437,8 @@ export default function piGoal(pi: ExtensionAPI) {
 			"Mark the current goal complete after a strict completion audit, or mark it waiting before ending a turn to passively wait for an external event",
 		promptGuidelines: [
 			"Use update_goal only when the current objective is fully achieved and verified against concrete evidence (status=complete), or when the only remaining action is to passively wait for an external event such as a background task notification (status=waiting).",
-			"Use waiting only when no independent work toward the objective is possible and an external event has a concrete delivery mechanism to this session. It does not schedule a timer or poll GitHub. When waiting, end the turn right after; the next external turn resumes it.",
-			"A paused goal stays paused across normal messages. You may complete it when its objective is fulfilled, including an explicitly user-ended service objective after its required handover. Do not resume it or treat an interruption alone as completion.",
+			"Keep working while useful actions toward the objective remain. Use waiting only for a required external event that will reach this session. It does not schedule a wake-up. End the turn after marking waiting.",
+			"A paused goal stays paused across normal messages. Reading or completing an achieved goal does not resume it. The same completion criteria apply in every state; an interruption alone never completes a goal.",
 			"Do not use update_goal to pause, resume, abandon, or budget-limit a goal.",
 		],
 		parameters: {
@@ -587,7 +586,7 @@ export default function piGoal(pi: ExtensionAPI) {
 		brake = resetBrakeState();
 		activeTurnStartedAt = null;
 		activeGoalThisTurnId = null;
-		// Pausierte Goals muessen ohne Resume lesbar und nach erfuelltem Vertrag abschliessbar bleiben.
+		// Paused goals must remain readable and completable without restarting autonomous work.
 		syncGoalTools(pi);
 		if (goal?.status === "active" && event.reason === "reload") {
 			// Reload pauses an active goal so it does not silently resume.
@@ -672,13 +671,13 @@ export default function piGoal(pi: ExtensionAPI) {
 				const next: GoalState = {
 					...goal,
 					status: "paused",
-					pauseReason: `${MAX_CONSECUTIVE_AUTO_CONTINUATIONS} aufeinanderfolgende automatische Fortsetzungen ohne Werkzeugaufruf.`,
+					pauseReason: `${MAX_CONSECUTIVE_AUTO_CONTINUATIONS} consecutive automatic runs without a tool call.`,
 					updatedAt: Date.now(),
 				};
 				persist(pi, ctx, next);
 				ctx.ui.notify(
-					`\u2016 Goal automatisch pausiert nach ${MAX_CONSECUTIVE_AUTO_CONTINUATIONS} aufeinanderfolgenden Fortsetzungen ohne Werkzeugaufruf. ` +
-						`Das Goal wiederholt wahrscheinlich denselben blockierten Zustand. Mit /goal resume geht es weiter.`,
+					`\u2016 Goal paused after ${MAX_CONSECUTIVE_AUTO_CONTINUATIONS} consecutive automatic runs without a tool call. ` +
+						`Use /goal resume to continue after checking the repeated result.`,
 					"warning",
 				);
 				return;
