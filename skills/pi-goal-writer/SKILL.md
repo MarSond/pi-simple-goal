@@ -46,6 +46,21 @@ For Pi token budgets:
 /goal --tokens 50k <same goal contract>
 ```
 
+## Daueraufträge bei abwesendem Nutzer
+
+Ein ausdrücklich beauftragter Overnight-Dauerlauf braucht einen fortlaufenden Arbeitsvorrat und eine klare Übergabe
+bei Nutzerende. Offene Issues, eigene PRs samt CI und Review, Code-TODOs und sinnvolle Verbesserungen sind Aufgabenquellen.
+Prüfbare Änderungen und neue belegte Befunde zählen als Fortschritt; Uhrzeitchecks, Polls und Warten allein nicht.
+Bei einer blockierten Aufgabe unabhängige Arbeit wählen. Erst wenn keine sinnvolle Aufgabe im freigegebenen Scope
+bearbeitbar ist, eine begründete Wartephase mit Wiederaufnahmeweg wählen. Keine künstliche Mindestzahl von Aufgaben verlangen.
+
+Im Objective den Overnight-Skill und die freigegebenen Repos nennen. Automatische Fortsetzungen wiederholen denselben Auftrag.
+Ein Nutzerabbruch pausiert ihn, normale Nachrichten setzen ihn nicht fort; dafür ist `/goal resume` vorgesehen.
+`waiting` hat keinen Timer: Es ist nur für eine konkrete externe Ereigniszustellung geeignet, wenn gerade keine unabhängige
+Arbeit möglich ist. Ein GitHub-Kommentar allein weckt die Sitzung nicht. Aktives zeitbegrenztes Warten folgt dem Overnight-Skill.
+Bei einer Stopp-Anweisung sichern und auswerten. Danach ist der Dienstvertrag erfüllt und darf auch aus `paused` abgeschlossen
+werden; offene Fachaufgaben bleiben offen. Dafür weder ein Resume noch ein Ersatz-Goal erzeugen. Das Plugin parst kein Stoppwort.
+
 ## Writing standards
 
 Make the goal self-contained. It should survive context compaction and continuation turns. Include exact command names when known, but do not invent commands. Say “run the relevant project checks identified in AGENTS.md/package scripts” only when exact commands are unknown and the agent can inspect them.

@@ -79,9 +79,9 @@ function createGoal(id) {
 }
 
 async function runSuccessfulTurn(instance, context) {
-	await instance.handlers.get("turn_start")(undefined, context);
+	await instance.handlers.get("turn_start")({ turnIndex: 0 }, context);
 	await instance.handlers.get("turn_end")(
-		{ message: { role: "assistant", stopReason: "stop", usage: { totalTokens: 5 } } },
+		{ message: { role: "assistant", stopReason: "stop", usage: { totalTokens: 5 } }, toolResults: [] },
 		context,
 	);
 	await instance.handlers.get("agent_settled")(undefined, context);
