@@ -1,25 +1,25 @@
 /**
- * Fehler-Bremse für das Goal-Plugin.
+ * Error brake for the goal plugin.
  *
- * Grundlage sind zwei veröffentlichte Lösungen im pi-goal-Ökosystem, beide MIT wie pi-goal selbst:
- *   - die Recovery-Planung von `manthedan/pi-goal` (Fehlerklassifikation, Retry-Fenster, Pause bei Erschöpfung)
- *   - die Fortsetzungssteuerung über `agent_settled` von `patlux/pi-goal` (Pi darf erst seinen eigenen
- *     Wiederholungs- und Komprimierungsversuch beenden, bevor das Goal weiterplant)
+ * Based on two published solutions in the pi-goal ecosystem, both MIT like pi-goal itself:
+ *   - the recovery planning from `manthedan/pi-goal` (error classification, retry windows, pause on exhaustion)
+ *   - the continuation control via `agent_settled` from `patlux/pi-goal` (Pi first finishes its own
+ *     retry and compaction recovery before the goal plans further)
  *
- * Eigen ist hier die Konfigurierbarkeit: Schwellen und Wartezeiten kommen aus einer Datei, damit ein Lauf
- * ohne Handeingriff bremst und die Werte anpassbar bleiben.
+ * What is specific here is the configurability: thresholds and wait times come from config files, so a run
+ * brakes without manual intervention and the values stay adjustable.
  */
 
 export type ErrorKind = "connection" | "rate_limit" | "token_exhausted" | "quota" | "other";
 
 export type BrakePolicy = {
-	/** Aufeinanderfolgende Fehlerturns, die das Goal noch laufen lässt. */
+	/** Consecutive failed turns the goal tolerates before it pauses itself. */
 	maxConsecutiveErrors: number;
-	/** Wartezeiten in Sekunden, Index 0 für den ersten Fehler. */
+	/** Wait times in seconds, index 0 for the first error. */
 	backoffSeconds: number[];
-	/** Deckel für die Wartezeit in Sekunden. */
+	/** Upper bound for the wait time in seconds. */
 	maxBackoffSeconds: number;
-	/** Nach einem Kontextüberlauf pausieren statt weiterzuversuchen. */
+	/** Pause instead of retrying after a context overflow. */
 	pauseOnTokenExhausted: boolean;
 };
 
@@ -31,13 +31,13 @@ export const DEFAULT_POLICY: BrakePolicy = {
 };
 
 export type BrakeState = {
-	/** Signatur des letzten Fehlers, damit gleiche Fehler gezählt und andere neu gezählt werden. */
+	/** Signature of the last error, so identical errors count on and new ones restart the count. */
 	signature: string | null;
-	/** Fehler in Folge. */
+	/** Consecutive errors. */
 	consecutiveErrors: number;
-	/** Klassifikation des letzten Fehlers. */
+	/** Classification of the last error. */
 	kind: ErrorKind | null;
-	/** Zeitpunkt des letzten Fehlers in Millisekunden. */
+	/** Time of the last error in milliseconds. */
 	lastErrorAt: number | null;
 };
 
@@ -72,7 +72,7 @@ export function classifyError(errorMessage: string | null | undefined): ErrorKin
 	return "other";
 }
 
-/** Fehlersignatur: gleiche Ursache ergibt gleiche Signatur, wechselnde Zahlen und IDs werden ersetzt. */
+/** Error signature: the same cause yields the same signature, varying numbers and IDs are replaced. */
 export function normalizeSignature(errorMessage: string | null | undefined): string {
 	const firstLine = (errorMessage ?? "unknown_error").trim().split("\n")[0] ?? "unknown_error";
 	return firstLine
@@ -90,7 +90,7 @@ export function backoffSeconds(attempt: number, policy: BrakePolicy = DEFAULT_PO
 }
 
 /**
- * Entscheidung nach einem Fehlerturn. Gleiche Fehlersignaturen zählen fort, eine neue Signatur beginnt neu.
+ * Decision after a failed turn. Identical error signatures keep counting, a new signature restarts the count.
  */
 export function decide(
 	state: BrakeState,
@@ -109,7 +109,7 @@ export function decide(
 			decision: {
 				action: "pause",
 				delaySeconds: 0,
-				reason: "Kontext- oder Token-Erschöpfung. Eine weitere Fortsetzung würde den Kontext nur vergrößern.",
+				reason: "Context or token exhaustion. Continuing would only grow the context.",
 				kind,
 			},
 		};
@@ -120,7 +120,7 @@ export function decide(
 			decision: {
 				action: "pause",
 				delaySeconds: 0,
-				reason: "Provider-Kontingent erschöpft. Weiterlaufen erzeugt nur Fehlerturns.",
+				reason: "Provider quota exhausted. Continuing would only produce failed turns.",
 				kind,
 			},
 		};
@@ -131,7 +131,7 @@ export function decide(
 			decision: {
 				action: "pause",
 				delaySeconds: 0,
-				reason: `${consecutiveErrors} aufeinanderfolgende Fehler (${describeKind(kind)}). Das Goal pausiert, statt weiter zu laufen.`,
+				reason: `${consecutiveErrors} consecutive errors (${describeKind(kind)}). The goal pauses instead of keeping the run going.`,
 				kind,
 			},
 		};
@@ -145,16 +145,16 @@ export function decide(
 export function describeKind(kind: ErrorKind): string {
 	switch (kind) {
 		case "connection":
-			return "Verbindungsfehler";
+			return "connection error";
 		case "rate_limit":
-			return "Ratelimit";
+			return "rate limit";
 		case "token_exhausted":
-			return "Kontext- oder Token-Erschöpfung";
+			return "context or token exhaustion";
 		case "quota":
-			return "Provider-Kontingent erschöpft";
+			return "provider quota exhausted";
 		case "other":
-			return "unbekannter Fehler";
+			return "unknown error";
 		default:
-			return "unbekannter Fehler";
+			return "unknown error";
 	}
 }

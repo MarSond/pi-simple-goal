@@ -233,3 +233,14 @@ test("a long tool chain stays active and needs no goal reminder until the run en
 	assert.equal(h.currentGoal().status, "active");
 	assert.equal(h.continuations(), 1);
 });
+
+// /goal status output is a human-only TUI notification. It must never enter the conversation,
+// so the agent does not read its own status output back as context.
+test("/goal status is human-only output and never enters the conversation", async () => {
+	const h = await setupGoal();
+	const before = h.sent.length;
+	await h.commands.goal.handler("status", h.ctx);
+	assert.equal(h.sent.length, before, "/goal status must not send a message to the conversation");
+	await h.commands.goal.handler("", h.ctx);
+	assert.equal(h.sent.length, before, "bare /goal must not send a message to the conversation");
+});

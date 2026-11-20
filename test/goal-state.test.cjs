@@ -94,11 +94,21 @@ test("formatElapsed keeps seconds, minutes, and hours readable", () => {
 });
 
 test("statusLine covers all lifecycle states", () => {
-	assert.equal(statusLine(null), undefined);
-	assert.equal(statusLine({ status: "active", tokenBudget: 1000, tokensUsed: 500, timeUsedSeconds: 10 }), "Pursuing goal (500 / 1K)");
-	assert.equal(statusLine({ status: "paused", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 10 }), "Goal paused (/goal resume)");
-	assert.equal(statusLine({ status: "budget_limited", tokenBudget: 1000, tokensUsed: 1000, timeUsedSeconds: 10 }), "Goal unmet (1K / 1K)");
-	assert.equal(statusLine({ status: "budget_limited", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 10 }), "Goal abandoned");
+	assert.equal(statusLine(null), "Goal: none");
+	assert.equal(statusLine({ status: "active", tokenBudget: 1000, tokensUsed: 500, timeUsedSeconds: 10 }), "Goal running (10s, 500/1K)");
+	assert.equal(statusLine({ status: "active", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 10 }), "Goal running (10s)");
+	assert.equal(
+		statusLine({ status: "active", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 10 }, { staleReason: "waiting 15s after 2 errors (connection error)" }),
+		"Goal stale: waiting 15s after 2 errors (connection error) (10s)",
+	);
+	assert.equal(statusLine({ status: "waiting", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 10 }), "Goal waiting for an external event (10s)");
+	assert.equal(
+		statusLine({ status: "paused", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 10, pauseReason: "The turn was aborted." }),
+		"Goal paused: The turn was aborted. (10s)",
+	);
+	assert.equal(statusLine({ status: "paused", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 10, pauseReason: null }), "Goal paused: no reason (10s)");
+	assert.equal(statusLine({ status: "budget_limited", tokenBudget: 1000, tokensUsed: 1000, timeUsedSeconds: 10 }), "Goal unmet: budget reached (10s, 1K/1K)");
+	assert.equal(statusLine({ status: "budget_limited", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 10 }), "Goal abandoned (10s)");
 	assert.equal(statusLine({ status: "complete", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 61 }), "Goal achieved (1m)");
 });
 
@@ -170,7 +180,7 @@ test("accountGoalTurn clamps negative usage deltas", () => {
 	});
 });
 
-test("normalizeGoalState ergaenzt fehlende Fehlerfelder aus aelteren Sitzungen", () => {
+test("normalizeGoalState fills missing error fields from older sessions", () => {
 	const restored = normalizeGoalState({
 		version: 1,
 		id: "1-2",

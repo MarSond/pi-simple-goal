@@ -68,7 +68,7 @@ function createGoal(id) {
 	return {
 		version: 1,
 		id,
-		objective: `Ziel von ${id}`,
+		objective: `objective of ${id}`,
 		status: "active",
 		tokenBudget: null,
 		tokensUsed: 0,
@@ -88,7 +88,7 @@ async function runSuccessfulTurn(instance, context) {
 	await new Promise(setImmediate);
 }
 
-test("Goal-Zustand und Fortsetzung bleiben je Extension-Instanz getrennt", async () => {
+test("goal state and continuation stay separated per extension instance", async () => {
 	const piGoal = await jiti.import(join(__dirname, "../.pi/extensions/pi-simple-goal/index.ts"), { default: true });
 	const sessionA = createExtensionApi();
 	const sessionB = createExtensionApi();
@@ -106,11 +106,11 @@ test("Goal-Zustand und Fortsetzung bleiben je Extension-Instanz getrennt", async
 	assert.equal(goalFromA.objective, goalA.objective);
 	assert.equal(goalFromB, null);
 
-	// Die Instanz ohne Goal darf keine Fortsetzung ausloesen.
+	// The instance without a goal must not trigger a continuation.
 	await runSuccessfulTurn(sessionB, contextB);
 	assert.equal(sessionB.messages.length, 0);
 
-	// Die Instanz mit Goal plant genau eine eigene Fortsetzung.
+	// The instance with a goal plans exactly one continuation of its own.
 	await runSuccessfulTurn(sessionA, contextA);
 	assert.equal(sessionA.messages.length, 1);
 	assert.equal(sessionA.messages[0].message.details.goal.objective, goalA.objective);

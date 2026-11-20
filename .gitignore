@@ -3,3 +3,5 @@ node_modules/
 codex/
 *.tgz
 npm-debug.log*
+# local per-project goal config (user layer stays in ~/.pi/agent/)
+.pi/pi-simple-goal.json

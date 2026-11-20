@@ -12,13 +12,13 @@ export type GoalState = {
 	timeUsedSeconds: number;
 	createdAt: number;
 	updatedAt: number;
-	/** Aufeinanderfolgende Fehlerturns seit dem letzten erfolgreichen Turn. */
+	/** Consecutive failed turns since the last successful turn. */
 	consecutiveErrors?: number;
-	/** Klassifikation des letzten Fehlers. */
+	/** Classification of the last error. */
 	lastErrorKind?: ErrorKind | null;
-	/** Zeitpunkt des letzten Fehlers in Millisekunden. */
+	/** Time of the last error in milliseconds. */
 	lastErrorAt?: number | null;
-	/** Grund für eine automatische Pause durch die Fehler-Bremse. */
+	/** Reason for an automatic pause by the error brake. */
 	pauseReason?: string | null;
 };
 
@@ -73,14 +73,30 @@ export function formatElapsed(seconds: number): string {
 	return remMinutes ? `${hours}h ${remMinutes}m` : `${hours}h`;
 }
 
-export function statusLine(state: GoalState | null): string | undefined {
-	if (!state) return undefined;
-	const budget = state.tokenBudget ? ` (${formatTokens(state.tokensUsed)} / ${formatTokens(state.tokenBudget)})` : ` (${formatElapsed(state.timeUsedSeconds)})`;
-	if (state.status === "active") return `Pursuing goal${budget}`;
-	if (state.status === "waiting") return "Goal waiting for an external event (auto-resumes)";
-	if (state.status === "paused") return "Goal paused (/goal resume)";
-	if (state.status === "budget_limited") return state.tokenBudget ? `Goal unmet${budget}` : "Goal abandoned";
-	return `Goal achieved${budget}`;
+/**
+ * Footer status line. Always renders, also without a goal, so the bar stays visible
+ * after /goal clear. `staleReason` marks an active goal that is not progressing,
+ * for example during a brake backoff or right before the stall guard pauses it.
+ */
+export function statusLine(state: GoalState | null, opts?: { staleReason?: string | null }): string {
+	if (!state) return "Goal: none";
+	const usage =
+		state.tokenBudget != null
+			? `${formatElapsed(state.timeUsedSeconds)}, ${formatTokens(state.tokensUsed)}/${formatTokens(state.tokenBudget)}`
+			: formatElapsed(state.timeUsedSeconds);
+	if (state.status === "active") {
+		if (opts?.staleReason) return `Goal stale: ${opts.staleReason} (${usage})`;
+		return `Goal running (${usage})`;
+	}
+	if (state.status === "waiting") return `Goal waiting for an external event (${usage})`;
+	if (state.status === "paused") {
+		const reason = state.pauseReason ? truncateObjective(state.pauseReason, 48) : "no reason";
+		return `Goal paused: ${reason} (${usage})`;
+	}
+	if (state.status === "budget_limited") {
+		return state.tokenBudget != null ? `Goal unmet: budget reached (${usage})` : `Goal abandoned (${usage})`;
+	}
+	return `Goal achieved (${usage})`;
 }
 
 export function goalUsage(state: GoalState): string {
@@ -125,7 +141,7 @@ export function createGoalState(objective: string, tokenBudget: number | null, n
 	};
 }
 
-/** Fehlende Felder aus älteren Sitzungen ergänzen, ohne den Zustand zu verlieren. */
+/** Fill in missing fields from older sessions without losing the state. */
 export function normalizeGoalState(state: GoalState | null | undefined): GoalState | null {
 	if (!state) return null;
 	return {
@@ -150,7 +166,7 @@ export function accountGoalTurn(state: GoalState, tokenDelta: number, elapsedSec
 	return next;
 }
 
-/** Ein Fehlerturn zählt gegen den Fehlerzähler. */
+/** A failed turn counts against the error counter. */
 export function accountGoalError(state: GoalState, kind: ErrorKind, now = Date.now()): GoalState {
 	return {
 		...state,
@@ -161,7 +177,7 @@ export function accountGoalError(state: GoalState, kind: ErrorKind, now = Date.n
 	};
 }
 
-/** Ein erfolgreicher Turn setzt den Fehlerzähler zurück. */
+/** A successful turn resets the error counter. */
 export function clearGoalErrors(state: GoalState, now = Date.now()): GoalState {
 	if (!state.consecutiveErrors && !state.lastErrorKind && !state.lastErrorAt) return state;
 	return {
