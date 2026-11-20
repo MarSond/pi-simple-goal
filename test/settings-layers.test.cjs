@@ -6,7 +6,7 @@ const { join } = require("node:path");
 const { createJiti } = require("jiti");
 
 const jiti = createJiti(__filename);
-const { loadPolicy } = jiti("../.pi/extensions/pi-simple-goal/index.ts");
+const { loadPolicy, resolvePolicy } = jiti("../.pi/extensions/pi-simple-goal/index.ts");
 const { DEFAULT_POLICY } = jiti("../.pi/extensions/pi-simple-goal/error-policy.ts");
 
 // Run fn with an isolated cwd and HOME so the project and user config layers
@@ -110,5 +110,50 @@ test("loadPolicy keeps defaults for missing keys in a layer", () => {
 		const policy = loadPolicy();
 		assert.equal(policy.pauseOnTokenExhausted, false);
 		assert.equal(policy.maxConsecutiveErrors, DEFAULT_POLICY.maxConsecutiveErrors);
+	});
+});
+
+test("resolvePolicy reports the default as the source for every key", () => {
+	withConfigEnv({}, () => {
+		const { policy, sources } = resolvePolicy();
+		assert.deepEqual(policy, DEFAULT_POLICY);
+		for (const key of Object.keys(sources)) {
+			assert.equal(sources[key].layer, "default");
+		}
+	});
+});
+
+test("resolvePolicy attributes each key to the layer that provides it", () => {
+	withConfigEnv(
+		{
+			user: { maxConsecutiveErrors: 2, backoffSeconds: [1, 2] },
+			project: { maxConsecutiveErrors: 9 },
+		},
+		() => {
+			const { policy, sources } = resolvePolicy();
+			assert.equal(policy.maxConsecutiveErrors, 9);
+			assert.equal(sources.maxConsecutiveErrors.layer, "project");
+			assert.equal(sources.backoffSeconds.layer, "user");
+			assert.equal(sources.maxBackoffSeconds.layer, "default");
+			assert.equal(sources.pauseOnTokenExhausted.layer, "default");
+		},
+	);
+});
+
+test("resolvePolicy marks the env file as source when the override is set", () => {
+	withConfigEnv({ envFile: { maxConsecutiveErrors: 42 } }, () => {
+		const { sources } = resolvePolicy();
+		assert.equal(sources.maxConsecutiveErrors.layer, "env");
+		assert.match(sources.maxConsecutiveErrors.label, /env/);
+		assert.equal(sources.backoffSeconds.layer, "default");
+	});
+});
+
+test("resolvePolicy lets live overrides win over every file layer", () => {
+	withConfigEnv({ user: { maxConsecutiveErrors: 2 }, project: { maxConsecutiveErrors: 9 } }, () => {
+		const { policy, sources } = resolvePolicy({ maxConsecutiveErrors: 3 });
+		assert.equal(policy.maxConsecutiveErrors, 3);
+		assert.equal(sources.maxConsecutiveErrors.layer, "live");
+		assert.equal(sources.backoffSeconds.layer, "default");
 	});
 });

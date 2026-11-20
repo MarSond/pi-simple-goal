@@ -72,6 +72,10 @@ the values below are the defaults.
 The layers are read on every decision, so a change takes effect without a reload. An unreadable or invalid file is
 ignored and the remaining layers (and the defaults) apply.
 
+`/goal settings` shows the effective values with the layer each key comes from (env, project, user, or default).
+`/goal settings set <key> <value>` overrides a key for the current session only (it wins over every file layer
+and is gone on reload), and `/goal settings clear` removes all live overrides.
+
 ## Waiting without burning turns
 
 When the only remaining action is to wait for an external event, the model marks the goal `waiting` and ends the turn.
@@ -107,6 +111,8 @@ A successful turn resets the counter.
 /goal pause
 /goal resume
 /goal clear
+/goal settings
+/goal settings set backoffSeconds 10 30 120
 /goal statusbar off
 ```
 
@@ -148,6 +154,9 @@ apply in every state; pausing alone never completes a goal.
 - `/goal pause`: stop autonomous continuation without deleting the goal
 - `/goal resume`: reactivate a paused goal and reset the error counter
 - `/goal clear`: remove the goal
+- `/goal settings`: show the effective values and which layer sets each key
+- `/goal settings set <key> <value>`: override a key for this session only
+- `/goal settings clear`: remove all live overrides
 - `/goal statusbar on|off`: show or hide the footer status line
 - `create_goal` tool: model can set or replace the current goal only when explicitly requested
 - `get_goal` tool: read current goal state

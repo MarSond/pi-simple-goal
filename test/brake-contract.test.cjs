@@ -19,7 +19,7 @@ test("a failed turn triggers the error brake, not the next continuation immediat
 test("the brake uses classification, threshold, and backoff from the configuration", () => {
 	assert.match(indexSource, /classifyError\(lastErrorMessage\)/);
 	assert.match(indexSource, /decide\(brake, kind, signature, policy\)/);
-	assert.match(indexSource, /loadPolicy\(\)/);
+	assert.match(indexSource, /loadPolicy\(liveOverrides\)/);
 	assert.match(indexSource, /pi-simple-goal\.json/);
 });
 

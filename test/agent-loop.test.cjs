@@ -244,3 +244,48 @@ test("/goal status is human-only output and never enters the conversation", asyn
 	await h.commands.goal.handler("", h.ctx);
 	assert.equal(h.sent.length, before, "bare /goal must not send a message to the conversation");
 });
+
+// /goal settings is the live view of the effective policy with per-key provenance
+// (env, project, user, default) and session-scoped overrides. Human-only, like /goal status.
+test("/goal settings shows the effective policy and never enters the conversation", async () => {
+	const h = await setupGoal();
+	const notes = [];
+	h.ctx.ui.notify = (message) => notes.push(message);
+	const before = h.sent.length;
+	await h.commands.goal.handler("settings", h.ctx);
+	assert.equal(h.sent.length, before, "/goal settings must not send a message to the conversation");
+	const shown = notes.join("\n");
+	for (const key of ["maxConsecutiveErrors", "backoffSeconds", "maxBackoffSeconds", "pauseOnTokenExhausted"]) {
+		const line = shown.split("\n").find((l) => l.includes(`${key}:`));
+		assert.ok(line, `settings view must list ${key}`);
+		// Every key line carries a provenance label: a file layer, live, or the default.
+		assert.match(line, /\u00b7\s+(default|user:|project:|env:|live)/);
+	}
+	assert.match(shown, /live overrides: none/);
+});
+
+test("/goal settings set applies a live override to the next brake decision", async () => {
+	const h = await setupGoal();
+	await h.commands.goal.handler("settings set maxConsecutiveErrors 1", h.ctx);
+
+	await h.handlers.turn_start({ turnIndex: 0 }, h.ctx);
+	await h.handlers.turn_end({ message: { role: "assistant", stopReason: "error", errorMessage: "connection refused" }, toolResults: [] }, h.ctx);
+	await h.handlers.agent_settled(undefined, h.ctx);
+	await h.flush();
+	assert.equal(h.currentGoal().status, "paused");
+	assert.match(h.currentGoal().pauseReason, /1 consecutive errors/);
+	assert.equal(h.continuations(), 0);
+});
+
+test("/goal settings clear restores the file-based policy", async () => {
+	const h = await setupGoal();
+	await h.commands.goal.handler("settings set maxConsecutiveErrors 1", h.ctx);
+	await h.commands.goal.handler("settings clear", h.ctx);
+
+	// The default threshold is 5, so a single failure only waits the backoff and stays active.
+	await h.handlers.turn_start({ turnIndex: 0 }, h.ctx);
+	await h.handlers.turn_end({ message: { role: "assistant", stopReason: "error", errorMessage: "connection refused" }, toolResults: [] }, h.ctx);
+	await h.handlers.agent_settled(undefined, h.ctx);
+	await h.flush();
+	assert.equal(h.currentGoal().status, "active");
+});

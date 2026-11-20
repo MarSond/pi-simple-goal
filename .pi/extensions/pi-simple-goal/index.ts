@@ -39,16 +39,34 @@ const EVENT_TYPE = "pi-goal-event";
 
 const CONFIG_ENV = "PI_SIMPLE_GOAL_CONFIG";
 
+const POLICY_KEYS = ["maxConsecutiveErrors", "backoffSeconds", "maxBackoffSeconds", "pauseOnTokenExhausted"] as const;
+type PolicyKey = (typeof POLICY_KEYS)[number];
+
+/** Where an effective policy value comes from: a file layer, a live override, or the default. */
+type PolicySource = {
+	value: unknown;
+	layer: "default" | "user" | "project" | "env" | "live";
+	label: string;
+};
+
+type PolicyResolution = {
+	policy: BrakePolicy;
+	sources: Record<PolicyKey, PolicySource>;
+};
+
 /**
  * Config layers, lowest priority first: the user layer ~/.pi/agent/pi-simple-goal.json,
  * then the project layer .pi/pi-simple-goal.json. Keys of a later layer override earlier ones.
  * The PI_SIMPLE_GOAL_CONFIG environment variable replaces the whole stack with a single file.
  * Every key is optional.
  */
-function configLayers(): string[] {
+function configLayers(): Array<{ name: "user" | "project" | "env"; path: string }> {
 	const envPath = process.env[CONFIG_ENV];
-	if (envPath) return [envPath];
-	return [join(homedir(), ".pi", "agent", "pi-simple-goal.json"), join(process.cwd(), ".pi", "pi-simple-goal.json")];
+	if (envPath) return [{ name: "env", path: envPath }];
+	return [
+		{ name: "user", path: join(homedir(), ".pi", "agent", "pi-simple-goal.json") },
+		{ name: "project", path: join(process.cwd(), ".pi", "pi-simple-goal.json") },
+	];
 }
 
 function readConfigLayer(path: string): Partial<BrakePolicy> {
@@ -59,8 +77,8 @@ function readConfigLayer(path: string): Partial<BrakePolicy> {
 	}
 }
 
-export function loadPolicy(): BrakePolicy {
-	const parsed = configLayers().reduce<Partial<BrakePolicy>>((merged, path) => ({ ...merged, ...readConfigLayer(path) }), {});
+/** Normalize a partial config into a full policy, falling back to the defaults per key. */
+function normalizePolicy(parsed: Partial<BrakePolicy>): BrakePolicy {
 	const backoff = Array.isArray(parsed.backoffSeconds)
 			? parsed.backoffSeconds.map((value) => Number(value)).filter((value) => Number.isFinite(value))
 			: [];
@@ -77,6 +95,66 @@ export function loadPolicy(): BrakePolicy {
 				? parsed.pauseOnTokenExhausted
 				: DEFAULT_POLICY.pauseOnTokenExhausted,
 	};
+}
+
+/**
+ * Resolve the effective policy with per-key provenance.
+ * The file layers apply lowest priority first; live overrides from /goal settings win over
+ * every file layer and last for the current session only.
+ */
+export function resolvePolicy(liveOverrides: Partial<BrakePolicy> = {}): PolicyResolution {
+	const sources = {} as Record<PolicyKey, PolicySource>;
+	const merged: Partial<BrakePolicy> = {};
+	for (const key of POLICY_KEYS) {
+		sources[key] = { value: DEFAULT_POLICY[key], layer: "default", label: "default" };
+	}
+	for (const layer of configLayers()) {
+		const parsed = readConfigLayer(layer.path);
+		for (const key of POLICY_KEYS) {
+			if (parsed[key] === undefined) continue;
+			merged[key] = parsed[key];
+			sources[key] = { value: parsed[key], layer: layer.name, label: `${layer.name}: ${layer.path}` };
+		}
+	}
+	for (const key of POLICY_KEYS) {
+		if (liveOverrides[key] === undefined) continue;
+		merged[key] = liveOverrides[key];
+		sources[key] = { value: liveOverrides[key], layer: "live", label: "live: this session" };
+	}
+	const policy = normalizePolicy(merged);
+	for (const key of POLICY_KEYS) sources[key].value = policy[key];
+	return { policy, sources };
+}
+
+export function loadPolicy(liveOverrides: Partial<BrakePolicy> = {}): BrakePolicy {
+	return resolvePolicy(liveOverrides).policy;
+}
+
+/** Parse the value of /goal settings set. Every key has its own format. */
+function parseSettingValue(key: string, values: string[]): { value?: unknown; error?: string } {
+	if (!key) return { error: "Usage: /goal settings set <key> <value>" };
+	switch (key) {
+		case "maxConsecutiveErrors":
+		case "maxBackoffSeconds": {
+			const number = Number(values.join(""));
+			if (!Number.isFinite(number) || number < 0) return { error: `${key} expects a non-negative number` };
+			return { value: number };
+		}
+		case "pauseOnTokenExhausted": {
+			if (values[0] === "true") return { value: true };
+			if (values[0] === "false") return { value: false };
+			return { error: "pauseOnTokenExhausted expects true or false" };
+		}
+		case "backoffSeconds": {
+			const numbers = values.map(Number);
+			if (numbers.length === 0 || numbers.some((n) => !Number.isFinite(n) || n < 0)) {
+				return { error: "backoffSeconds expects a list of non-negative numbers, e.g. 10 30 120" };
+			}
+			return { value: numbers };
+		}
+		default:
+			return { error: `unknown key: ${key} (valid: ${POLICY_KEYS.join(", ")})` };
+	}
 }
 
 /** Outcome of the last run, once Pi has finished it. */
@@ -223,6 +301,9 @@ Do not call update_goal unless the goal is actually complete.`;
 export default function piGoal(pi: ExtensionAPI) {
 	let goal: GoalState | null = null;
 	let statusBarEnabled = true;
+	// Live overrides from /goal settings set. Session scope only, per extension instance:
+	// they win over every file layer and are gone on reload.
+	let liveOverrides: Partial<BrakePolicy> = {};
 	let pendingBackoffSeconds: number | null = null;
 	let activeTurnStartedAt: number | null = null;
 	let activeGoalThisTurnId: string | null = null;
@@ -259,7 +340,7 @@ export default function piGoal(pi: ExtensionAPI) {
 			ctx.ui.notify("\u2016 Goal paused: the turn was aborted. Use /goal resume to continue.", "warning");
 			return;
 		}
-		const policy = loadPolicy();
+		const policy = loadPolicy(liveOverrides);
 		const kind = classifyError(lastErrorMessage);
 		const signature = normalizeSignature(lastErrorMessage);
 		const { state: nextBrake, decision } = decide(brake, kind, signature, policy);
@@ -513,9 +594,58 @@ export default function piGoal(pi: ExtensionAPI) {
 		},
 	});
 
+	// /goal settings shows the effective policy with per-key provenance (env, project,
+	// user, default, live) and allows live overrides for the current session.
+	// Human-only output like /goal status: it never enters the conversation.
+	function handleGoalSettings(ctx: ExtensionContext, argText: string) {
+		const parts = argText.split(/\s+/);
+		const action = parts[1];
+
+		if (!action) {
+			const { sources } = resolvePolicy(liveOverrides);
+			const lines = POLICY_KEYS.map((key) => {
+				const source = sources[key];
+				const value = key === "backoffSeconds" ? (source.value as number[]).join(" ") : String(source.value);
+				return `\u2016   ${key}: ${value}  \u00b7  ${source.label}`;
+			});
+			const overridden = POLICY_KEYS.filter((key) => liveOverrides[key] !== undefined);
+			lines.push(`\u2016 live overrides: ${overridden.length > 0 ? overridden.join(", ") : "none"} (session only, /goal settings clear)`);
+			lines.push("\u2016 /goal settings set <key> <value>");
+			ctx.ui.notify(`\u2016 Goal settings (effective)\n${lines.join("\n")}`, "info");
+			return;
+		}
+
+		if (action === "clear") {
+			liveOverrides = {};
+			ctx.ui.notify("\u2016 Live settings overrides cleared.", "info");
+			return;
+		}
+
+		if (action === "set") {
+			const key = parts[2];
+			const values = parts.slice(3);
+			const parsed = parseSettingValue(key, values);
+			if (parsed.error) {
+				ctx.ui.notify(`\u2016 ${parsed.error}`, "warning");
+				return;
+			}
+			liveOverrides = { ...liveOverrides, [key]: parsed.value };
+			const shown = key === "backoffSeconds" ? (parsed.value as number[]).join(" ") : String(parsed.value);
+			ctx.ui.notify(`\u2016 ${key} = ${shown} (live, this session only)`, "info");
+			return;
+		}
+
+		ctx.ui.notify("Usage: /goal settings [set <key> <value> | clear]", "warning");
+	}
+
 	async function handleGoalCommand(args: string, ctx: ExtensionContext) {
 		const trimmed = args.trim();
 		const now = Date.now();
+
+		if (trimmed === "settings" || trimmed.startsWith("settings ")) {
+			handleGoalSettings(ctx, trimmed);
+			return;
+		}
 
 		if (!trimmed || trimmed === "status") {
 			if (!goal) {
@@ -589,7 +719,7 @@ export default function piGoal(pi: ExtensionAPI) {
 	pi.registerCommand("goal", {
 		description: "Set, view, pause, resume, clear, or configure a long-running goal",
 		getArgumentCompletions: (prefix) => {
-			const values = ["pause", "resume", "clear", "status", "statusbar", "statusbar on", "statusbar off"];
+			const values = ["pause", "resume", "clear", "status", "settings", "settings set", "settings clear", "statusbar", "statusbar on", "statusbar off"];
 			const filtered = values.filter((value) => value.startsWith(prefix));
 			return filtered.length ? filtered.map((value) => ({ value, label: value })) : null;
 		},
