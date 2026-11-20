@@ -14,7 +14,7 @@ const {
 	resetBrakeState,
 } = jiti("../.pi/extensions/pi-simple-goal/error-policy.ts");
 
-test("classifyError trennt Verbindung, Ratelimit, Kontingent und Kontextüberlauf", () => {
+test("classifyError separates connection, rate limit, quota, and context overflow", () => {
 	assert.equal(classifyError("Connection error."), "connection");
 	assert.equal(classifyError("fetch failed: ECONNREFUSED"), "connection");
 	assert.equal(classifyError("socket hang up"), "connection");
@@ -29,14 +29,14 @@ test("classifyError trennt Verbindung, Ratelimit, Kontingent und Kontextüberlau
 	assert.equal(classifyError(undefined), "other");
 });
 
-test("normalizeSignature ersetzt IDs und Zahlen, damit gleiche Ursache gleiche Signatur ergibt", () => {
+test("normalizeSignature replaces IDs and numbers so the same cause yields the same signature", () => {
 	const a = normalizeSignature("Error req_abc123 failed after 4711 ms");
 	const b = normalizeSignature("Error req_zzz999 failed after 1200 ms");
 	assert.equal(a, b);
 	assert.notEqual(a, normalizeSignature("Connection error."));
 });
 
-test("backoffSeconds steigt die Leiter und bleibt unter dem Deckel", () => {
+test("backoffSeconds climbs the ladder and stays under the cap", () => {
 	const policy = { ...DEFAULT_POLICY, backoffSeconds: [5, 15, 60], maxBackoffSeconds: 30 };
 	assert.equal(backoffSeconds(1, policy), 5);
 	assert.equal(backoffSeconds(2, policy), 15);
@@ -44,7 +44,7 @@ test("backoffSeconds steigt die Leiter und bleibt unter dem Deckel", () => {
 	assert.equal(backoffSeconds(9, policy), 30);
 });
 
-test("decide wartet beim ersten Fehler und zählt gleiche Signaturen fort", () => {
+test("decide waits on the first error and keeps counting identical signatures", () => {
 	let state = createBrakeState();
 	const first = decide(state, "connection", "conn", DEFAULT_POLICY);
 	assert.equal(first.decision.action, "retry");
@@ -57,7 +57,7 @@ test("decide wartet beim ersten Fehler und zählt gleiche Signaturen fort", () =
 	assert.equal(second.state.consecutiveErrors, 2);
 });
 
-test("decide beginnt bei einer neuen Fehlersignatur neu", () => {
+test("decide restarts the count on a new error signature", () => {
 	let state = createBrakeState();
 	state = decide(state, "connection", "conn", DEFAULT_POLICY).state;
 	state = decide(state, "connection", "conn", DEFAULT_POLICY).state;
@@ -65,27 +65,27 @@ test("decide beginnt bei einer neuen Fehlersignatur neu", () => {
 	assert.equal(other.state.consecutiveErrors, 1);
 });
 
-test("decide pausiert nach der konfigurierten Fehlerzahl", () => {
+test("decide pauses after the configured error count", () => {
 	const policy = { ...DEFAULT_POLICY, maxConsecutiveErrors: 3 };
 	let state = createBrakeState();
 	state = decide(state, "connection", "conn", policy).state;
 	state = decide(state, "connection", "conn", policy).state;
 	const third = decide(state, "connection", "conn", policy);
 	assert.equal(third.decision.action, "pause");
-	assert.match(third.decision.reason, /3 aufeinanderfolgende Fehler/);
+	assert.match(third.decision.reason, /3 consecutive errors/);
 });
 
-test("decide pausiert sofort bei Kontextüberlauf und bei erschöpftem Kontingent", () => {
+test("decide pauses immediately on context overflow and exhausted quota", () => {
 	const overflow = decide(createBrakeState(), "token_exhausted", "ctx", DEFAULT_POLICY);
 	assert.equal(overflow.decision.action, "pause");
-	assert.match(overflow.decision.reason, /Kontext/);
+	assert.match(overflow.decision.reason, /Context/);
 
 	const quota = decide(createBrakeState(), "quota", "quota", DEFAULT_POLICY);
 	assert.equal(quota.decision.action, "pause");
-	assert.match(quota.decision.reason, /Kontingent/);
+	assert.match(quota.decision.reason, /quota/);
 });
 
-test("resetBrakeState setzt Zähler und Signatur zurück", () => {
+test("resetBrakeState resets counter and signature", () => {
 	const state = { signature: "conn", consecutiveErrors: 4, kind: "connection", lastErrorAt: 1 };
 	assert.deepEqual(resetBrakeState(), {
 		signature: null,
@@ -96,10 +96,10 @@ test("resetBrakeState setzt Zähler und Signatur zurück", () => {
 	assert.deepEqual(state.signature, "conn");
 });
 
-test("describeKind benennt jeden Fehlertyp", () => {
-	assert.equal(describeKind("connection"), "Verbindungsfehler");
-	assert.equal(describeKind("rate_limit"), "Ratelimit");
-	assert.equal(describeKind("token_exhausted"), "Kontext- oder Token-Erschöpfung");
-	assert.equal(describeKind("quota"), "Provider-Kontingent erschöpft");
-	assert.equal(describeKind("other"), "unbekannter Fehler");
+test("describeKind names every error kind", () => {
+	assert.equal(describeKind("connection"), "connection error");
+	assert.equal(describeKind("rate_limit"), "rate limit");
+	assert.equal(describeKind("token_exhausted"), "context or token exhaustion");
+	assert.equal(describeKind("quota"), "provider quota exhausted");
+	assert.equal(describeKind("other"), "unknown error");
 });

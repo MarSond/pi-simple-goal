@@ -45,7 +45,13 @@ pi install git:github.com/MarSond/pi-simple-goal@v1
 
 ## Configuration
 
-Create `~/.pi/agent/pi-simple-goal.json`. Every key is optional, the values below are the defaults.
+Settings are read from two layers, lowest priority first:
+
+1. **User layer** — `~/.pi/agent/pi-simple-goal.json`, applies to every project.
+2. **Project layer** — `.pi/pi-simple-goal.json` in the working directory, overrides the user layer key by key.
+
+The environment variable `PI_SIMPLE_GOAL_CONFIG` replaces the whole stack with a single file. Every key is optional,
+the values below are the defaults.
 
 ```json
 {
@@ -63,8 +69,12 @@ Create `~/.pi/agent/pi-simple-goal.json`. Every key is optional, the values belo
 | `maxBackoffSeconds` | Upper bound for the wait time |
 | `pauseOnTokenExhausted` | Pause instead of retrying after a context overflow |
 
-The file is read on every decision, so a change takes effect without a reload. The path can be overridden with the
-environment variable `PI_SIMPLE_GOAL_CONFIG`.
+The layers are read on every decision, so a change takes effect without a reload. An unreadable or invalid file is
+ignored and the remaining layers (and the defaults) apply.
+
+`/goal settings` shows the effective values with the layer each key comes from (env, project, user, or default).
+`/goal settings set <key> <value>` overrides a key for the current session only (it wins over every file layer
+and is gone on reload), and `/goal settings clear` removes all live overrides.
 
 ## Waiting without burning turns
 
@@ -101,6 +111,8 @@ A successful turn resets the counter.
 /goal pause
 /goal resume
 /goal clear
+/goal settings
+/goal settings set backoffSeconds 10 30 120
 /goal statusbar off
 ```
 
@@ -108,6 +120,22 @@ When a goal is active, the extension shows compact visible lifecycle markers lik
 continuing`; expand them with `ctrl+o` to inspect the objective and usage. The full continuation instructions ride
 along as the content of that custom message, so the model always has the objective and audit guidance in the
 transcript while the renderer keeps the visible UI compact.
+
+The footer status bar stays visible while it is enabled, also without an active goal. It shows the current state,
+the elapsed goal time, the token budget, and the pause reason when the goal is stopped:
+
+```text
+Goal running (2m, 500/1K)
+Goal stale: waiting 60s after 2 errors (connection error) (2m, 500/1K)
+Goal waiting for an external event (2m)
+Goal paused: 5 consecutive errors (connection error)… (2m, 500/1K)
+Goal unmet: budget reached (9m, 1K/1K)
+Goal achieved (9m, 800/1K)
+Goal: none
+```
+
+`Goal stale` marks an active goal that is not progressing: the error brake is in its backoff wait, or the stall
+guard is close to pausing the goal after repeated tool-free automatic runs.
 
 The same Pi agent keeps running normal turns in the same session context until it calls
 `update_goal({ status: "complete" })`, the user pauses/clears it, the token budget is reached, or the error brake
@@ -126,12 +154,15 @@ apply in every state; pausing alone never completes a goal.
 - `/goal pause`: stop autonomous continuation without deleting the goal
 - `/goal resume`: reactivate a paused goal and reset the error counter
 - `/goal clear`: remove the goal
+- `/goal settings`: show the effective values and which layer sets each key
+- `/goal settings set <key> <value>`: override a key for this session only
+- `/goal settings clear`: remove all live overrides
 - `/goal statusbar on|off`: show or hide the footer status line
 - `create_goal` tool: model can set or replace the current goal only when explicitly requested
 - `get_goal` tool: read current goal state
 - `update_goal` tool: mark the goal `complete`, or `waiting` for an external event
 - `get_goal` stays available whenever a goal exists; `update_goal` stays available until completion
-- footer status: `Pursuing goal`, `Goal paused`, `Goal achieved`, or `Goal unmet`
+- footer status bar: `Goal running`, `Goal stale`, `Goal waiting`, `Goal paused: reason`, `Goal unmet`, `Goal achieved`, and `Goal: none` when no goal is set
 
 ## State
 

@@ -5,59 +5,59 @@ const { test } = require("node:test");
 
 const indexSource = readFileSync(join(__dirname, "../.pi/extensions/pi-simple-goal/index.ts"), "utf8");
 
-test("die Fortsetzung wird nach agent_settled geplant, nicht nach agent_end", () => {
+test("the continuation is planned after agent_settled, not after agent_end", () => {
 	assert.match(indexSource, /pi\.on\("agent_settled"/);
 	assert.doesNotMatch(indexSource, /pi\.on\("agent_end"/);
 });
 
-test("ein Fehlerturn löst die Fehler-Bremse aus, nicht sofort die nächste Fortsetzung", () => {
+test("a failed turn triggers the error brake, not the next continuation immediately", () => {
 	assert.match(indexSource, /outcome === "error" \|\| outcome === "aborted"/);
 	assert.match(indexSource, /applyBrake\(pi, ctx, outcome\)/);
 	assert.match(indexSource, /settledOutcome = outcomeOf\(message\)/);
 });
 
-test("die Bremse nutzt Klassifikation, Schwelle und Backoff aus der Konfiguration", () => {
+test("the brake uses classification, threshold, and backoff from the configuration", () => {
 	assert.match(indexSource, /classifyError\(lastErrorMessage\)/);
 	assert.match(indexSource, /decide\(brake, kind, signature, policy\)/);
-	assert.match(indexSource, /loadPolicy\(\)/);
+	assert.match(indexSource, /loadPolicy\(liveOverrides\)/);
 	assert.match(indexSource, /pi-simple-goal\.json/);
 });
 
-test("eine wartende Fortsetzung wird verworfen, sobald das Goal nicht mehr aktiv ist", () => {
+test("a pending continuation is dropped once the goal is no longer active", () => {
 	assert.match(indexSource, /if \(next\?\.status !== "active"\) \{[\s\S]*?clearContinuationTimer\(\);/);
 });
 
-// Automatische Fortsetzungen duerfen den vollen Audit-Text nicht je Turn wiederholen. In einer langen
-// Schleife erzeugt die Vollfassung hunderte identische Kopien und sprengt den Kontext.
-test("automatische Fortsetzungen nutzen den kurzen Hinweis statt des vollstaendigen Audit-Textes", () => {
+// Automatic continuations must not repeat the full audit text on every turn. In a long loop the full
+// version would create hundreds of identical copies and blow up the context.
+test("automatic continuations use the short hint instead of the full audit text", () => {
 	assert.match(indexSource, /case "continuation":\s*return shortContinuationPrompt\(state\);/);
 	assert.doesNotMatch(indexSource, /case "active":\s*case "continuation":/);
 	assert.match(indexSource, /function shortContinuationPrompt\(state: GoalState\): string \{/);
 });
 
-// Der Wartezustand beendet den Turn ohne Fortsetzung und wacht mit dem naechsten Turn auf.
-test("der Wartezustand unterdrueckt die Fortsetzung und wacht beim naechsten Turn auf", () => {
+// The waiting state ends the turn without a continuation and wakes up with the next turn.
+test("the waiting state suppresses the continuation and wakes on the next turn", () => {
 	assert.match(indexSource, /enum: \["complete", "waiting"\]/);
 	assert.match(indexSource, /status: "waiting"/);
 	assert.match(indexSource, /goal\?\.status === "waiting" && waitingSettled && !autoContinuationPending/);
-	// Das Warten darf kein sendMessage ausloesen: jede Zustellung startet einen Turn und hebt den Zustand auf.
+	// Waiting must not trigger a sendMessage: every delivery starts a turn and lifts the state.
 	assert.doesNotMatch(indexSource, /deliverAs: "nextTurn"/);
 });
 
-// Der Zustand gehoert je Extension-Instanz, damit zwei Sitzungen im selben Prozess sich nicht mischen.
-test("der Goal-Zustand liegt je Extension-Instanz", () => {
+// The state belongs per extension instance so two sessions in the same process do not mix.
+test("the goal state lives per extension instance", () => {
 	assert.match(indexSource, /export default function piGoal\(pi: ExtensionAPI\) \{\s*let goal: GoalState \| null = null;/);
 });
 
-// Der Fehlerstand gehoert in den Goal-Zustand, nicht nur in den Modulspeicher. Nach einem Neustart
-// mitten in einer Fehlerkette muss der Zaehler weiterlaufen und nicht bei null beginnen.
-test("Fehlerstand wird im Goal-Zustand persistiert und beim Erfolg geleert", () => {
+// The error state belongs in the goal state, not only in module memory. After a restart in the middle
+// of an error chain the counter must keep running, not start at zero.
+test("the error state is persisted in the goal state and cleared on success", () => {
 	assert.match(indexSource, /persist\(pi, ctx, accountGoalError\(goal, kind\)\)/);
 	assert.match(indexSource, /\.\.\.accountGoalError\(goal, kind\)/);
 	assert.match(indexSource, /goal = clearGoalErrors\(goal\);/);
 });
 
-// Nach /goal resume darf kein alter Pausegrund stehen bleiben, sonst widerspricht /goal status dem Zustand.
-test("ein Resume leert den Pausegrund", () => {
+// After /goal resume no stale pause reason may remain, otherwise /goal status contradicts the state.
+test("a resume clears the pause reason", () => {
 	assert.match(indexSource, /if \(status === "active"\) next\.pauseReason = null;/);
 });
