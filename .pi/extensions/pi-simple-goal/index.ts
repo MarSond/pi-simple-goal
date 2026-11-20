@@ -603,15 +603,20 @@ export default function piGoal(pi: ExtensionAPI) {
 
 		if (!action) {
 			const { sources } = resolvePolicy(liveOverrides);
-			const lines = POLICY_KEYS.map((key) => {
-				const source = sources[key];
-				const value = key === "backoffSeconds" ? (source.value as number[]).join(" ") : String(source.value);
-				return `\u2016   ${key}: ${value}  \u00b7  ${source.label}`;
-			});
+			// Aligned columns: key, value, and the layer name. Full file paths stay out of the
+			// view (they are documented and repeat); the env path is the one exception, shown
+			// in the header because it is an arbitrary file.
+			const keyWidth = Math.max(...POLICY_KEYS.map((key) => key.length));
+			const values = POLICY_KEYS.map((key) => (key === "backoffSeconds" ? (sources[key].value as number[]).join(" ") : String(sources[key].value)));
+			const valueWidth = Math.max(...values.map((value) => value.length));
+			const lines = POLICY_KEYS.map((key, i) => `\u2016   ${key.padEnd(keyWidth)}  ${values[i].padEnd(valueWidth)}  ${sources[key].layer}`);
+			lines.push("\u2016");
 			const overridden = POLICY_KEYS.filter((key) => liveOverrides[key] !== undefined);
-			lines.push(`\u2016 live overrides: ${overridden.length > 0 ? overridden.join(", ") : "none"} (session only, /goal settings clear)`);
-			lines.push("\u2016 /goal settings set <key> <value>");
-			ctx.ui.notify(`\u2016 Goal settings (effective)\n${lines.join("\n")}`, "info");
+			lines.push(`\u2016   live: ${overridden.length > 0 ? overridden.join(", ") : "none"} (session only)`);
+			lines.push("\u2016   /goal settings set <key> <value> · /goal settings clear");
+			const envSource = POLICY_KEYS.map((key) => sources[key]).find((source) => source.layer === "env");
+			const header = envSource ? `\u2016 Goal settings (effective) · env: ${envSource.label}` : "\u2016 Goal settings (effective)";
+			ctx.ui.notify(`${header}\n${lines.join("\n")}`, "info");
 			return;
 		}
 

@@ -256,12 +256,12 @@ test("/goal settings shows the effective policy and never enters the conversatio
 	assert.equal(h.sent.length, before, "/goal settings must not send a message to the conversation");
 	const shown = notes.join("\n");
 	for (const key of ["maxConsecutiveErrors", "backoffSeconds", "maxBackoffSeconds", "pauseOnTokenExhausted"]) {
-		const line = shown.split("\n").find((l) => l.includes(`${key}:`));
+		const line = shown.split("\n").find((l) => l.includes(key));
 		assert.ok(line, `settings view must list ${key}`);
-		// Every key line carries a provenance label: a file layer, live, or the default.
-		assert.match(line, /\u00b7\s+(default|user:|project:|env:|live)/);
+		// Every key line ends with its provenance: a file layer, live, or the default.
+		assert.match(line, /(default|user|project|env|live)\s*$/);
 	}
-	assert.match(shown, /live overrides: none/);
+	assert.match(shown, /live: none \(session only\)/);
 });
 
 test("/goal settings set applies a live override to the next brake decision", async () => {
